@@ -18,6 +18,30 @@ Alibi is a fork of [Cloaq](https://github.com/www1z4rd/cloaq) by www1z4rd and is
 
 The postmark at the top shows what the current site sees: its city, local time and UTC offset.
 
+## Back it up with Whereabouts
+
+<img src="docs/whereabouts-icon.png" alt="Whereabouts app icon: a passport entry stamp reading Whereabouts, Admitted" width="112" align="right">
+
+**Alibi gives your browser a story. [Whereabouts](https://github.com/doxigo/whereabouts) makes your whole Mac stick to it.**
+
+A browser extension can only argue from inside the browser. A site's own workers, and the first scripts of a page that loads instantly, read the time zone straight from macOS, and macOS still knows where you really are. Whereabouts is a free, open source menu bar app that closes that gap from the other side. It asks one question all day long: *where does the internet think this Mac is right now?*
+
+- **Your location shows as a place, not a status.** A flag, a country code or a city sits in the menu bar, never just "VPN: connected".
+- **When it's wrong, you'll know.** Choose any mix of a red menu bar, a notification, a sound and a red line along the edge of the screen. An optional kill switch cuts the network until you're back where you meant to be.
+- **The Mac's clock moves to your exit.** While the VPN is up, macOS switches to the exit's time zone, so every browser, worker and app agrees. The menu bar keeps your real time: `Oslo · 14:32 home`.
+- **It catches the quiet leaks.** IPv6 exits, DNS resolvers, an unexpected ISP, and a Mac whose time zone or region tells a different story than its connection.
+- **It works with rules about places.** Allow or block countries, expect certain ISPs, or give a site its own location, matched against the browser tab you're on.
+
+| Where a site can look | Alibi | Whereabouts |
+|---|:---:|:---:|
+| Page scripts, iframes, blob workers: time zone, locale, language, location | ✓ | |
+| The `Accept-Language` header | ✓ | |
+| The site's own workers and the first scripts of instant pages: time zone | | ✓ |
+| Your public IP and VPN exit, with alerts and a kill switch | | ✓ |
+| IPv6 and DNS leaks | | ✓ |
+
+Run both, set them to the same place, and every time zone on the [check page](https://doxigo.github.io/alibi/) agrees, including the ones Alibi can't reach. (A site's own workers still read the browser's locale; Alibi's Deep mode covers that.)
+
 ## Modes
 
 **Stealth Mode (default).** On every navigation, Alibi injects a script into each frame's page context. The script patches `Intl`, `Date`, `toLocaleString` and `navigator.geolocation`. No debugger is involved, so Chrome shows no banner. Limits:

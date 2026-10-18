@@ -142,6 +142,20 @@
       font-weight: 650;
     }
 
+    .os-tip {
+      margin-top: 16px;
+      padding: 12px 14px;
+      max-width: 62ch;
+      border: 1.5px solid rgb(var(--ink));
+      border-radius: 4px;
+      font-size: 14.5px;
+      color: rgb(var(--ink-2));
+    }
+
+    .os-tip strong {
+      color: rgb(var(--ink));
+    }
+
     .pending {
       color: rgb(var(--ink-3));
     }
@@ -309,6 +323,11 @@
       </thead>
       <tbody id="sources"></tbody>
     </table>
+    <p class="os-tip" id="osTip" hidden>
+      <strong>These rows read the time zone from macOS itself,</strong> which still knows where you are.
+      <a href="https://github.com/doxigo/whereabouts">Whereabouts</a> moves your Mac to your VPN’s time zone while it’s
+      connected and keeps your real time in the menu bar, so these rows match too.
+    </p>
 
     <h2>Location</h2>
     <button id="locate" type="button">Ask for my location</button>
@@ -441,6 +460,8 @@
 
       const answered = sources.filter((s) => s.value)
       const leaks = answered.filter((s) => s.value.zone !== reference.zone || s.value.offset !== reference.offset || s.value.locale !== reference.locale || s.earlyZone || (s.value.loads && s.value.loads !== 'ok'))
+      // Only macOS can fix the time zone of a site's own workers and of instant first scripts.
+      document.getElementById('osTip').hidden = !leaks.some((s) => ['early', 'fileWorker', 'moduleWorker'].includes(s.id) && s.value.zone !== reference.zone)
       const verdict = document.getElementById('verdict')
       const detail = document.getElementById('verdictDetail')
       const story = `${reference.zone} (${formatOffset(reference.offset)}, ${reference.locale})`
