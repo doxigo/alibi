@@ -1,5 +1,5 @@
 import { applyDebugger, startChild } from './debugger.js'
-import { coverFor, isActive, siteKey, userScriptsAvailable } from './sites.js'
+import { coverFor, isActive, languagesFor, siteKey, userScriptsAvailable } from './sites.js'
 import stealth from './stealth.js'
 
 const KEYS = ['useDebuggerApi', 'timezone', 'locale', 'lat', 'lon', 'sites']
@@ -39,9 +39,43 @@ let userScriptReady = registerUserScript().catch(() => false)
 const syncUserScript = () =>
   (userScriptReady = userScriptReady.then(registerUserScript).catch((e) => (console.error(e), false)))
 
+// The Accept-Language header, in both modes: Deep's CDP override can land after a page's own
+// request has already left, so the header is set here, in the network layer, where timing can't miss.
+// A site rule wins over All sites, and a more specific site over its parent domain.
+// ponytail: a cross-site iframe's own requests get the cover of the frame's site, not the page's;
+// matching by top-level page needs per-tab session rules.
+const ALL_TYPES = ['main_frame', 'sub_frame', 'stylesheet', 'script', 'image', 'font', 'object', 'xmlhttprequest',
+  'ping', 'csp_report', 'media', 'websocket', 'webtransport', 'webbundle', 'other']
+const headerAction = (locale) =>
+  locale
+    ? { type: 'modifyHeaders', requestHeaders: [{ header: 'accept-language', operation: 'set',
+        value: languagesFor(locale).map((l, i) => (i ? `${l};q=0.9` : l)).join(',') }] }
+    : { type: 'allow' } // a site on its real location keeps the browser's own header
+const syncHeaderRules = async () => {
+  const { locale, sites = {} } = await settings
+  const rules = []
+  if (locale) rules.push({ priority: 1, action: headerAction(locale), condition: { resourceTypes: ALL_TYPES } })
+  for (const [site, cover] of Object.entries(sites)) {
+    const priority = 1 + site.split('.').length
+    const action = headerAction(cover.locale)
+    rules.push(
+      { priority, action, condition: { requestDomains: [site], resourceTypes: ['main_frame'] } },
+      { priority, action, condition: { initiatorDomains: [site], resourceTypes: ALL_TYPES.slice(1) } },
+    )
+  }
+  const old = await chrome.declarativeNetRequest.getDynamicRules()
+  await chrome.declarativeNetRequest.updateDynamicRules({
+    removeRuleIds: old.map((r) => r.id),
+    addRules: rules.map((rule, i) => ({ id: i + 1, ...rule })),
+  })
+}
+let headerRulesReady = syncHeaderRules().catch(console.error)
+const syncHeaders = () => (headerRulesReady = headerRulesReady.then(syncHeaderRules).catch(console.error))
+
 chrome.storage.onChanged.addListener(() => {
   settings = chrome.storage.local.get(KEYS)
   syncUserScript()
+  syncHeaders()
 })
 
 chrome.runtime.onInstalled.addListener((details) => {
@@ -63,12 +97,43 @@ const aimTab = async (tabId, url, replacing) => {
   const cover = await deepCover(url)
   if (cover) applyDebugger(tabId, cover, replacing)
 }
+// The new tab page and other browser pages can't be debugged, so leaving one, Deep could only attach
+// once the site was already loading: its first scripts and cross-site frames would miss the cover.
+// Instead the tab is parked on about:blank, attached and armed there, then sent on with
+// location.replace, which also takes the blank page back out of history. Everything that leaves
+// these pages is a plain GET (typed address, tile, search), so re-issuing it loses nothing.
+const bouncing = new Set()
+const committedBlank = (tabId) =>
+  new Promise((resolve) => {
+    const done = () => (chrome.webNavigation.onCommitted.removeListener(listener), clearTimeout(timer), resolve())
+    const listener = (d) => d.tabId === tabId && d.frameId === 0 && d.url === 'about:blank' && done()
+    const timer = setTimeout(done, 2000)
+    chrome.webNavigation.onCommitted.addListener(listener)
+  })
+const bounce = async (tabId, url, cover) => {
+  bouncing.add(tabId)
+  try {
+    await chrome.tabs.update(tabId, { url: 'about:blank' })
+    await committedBlank(tabId)
+    await applyDebugger(tabId, cover, true)
+    await chrome.debugger.sendCommand({ tabId }, 'Runtime.evaluate', { expression: `location.replace(${JSON.stringify(url)})` })
+  } catch {
+    chrome.tabs.update(tabId, { url }).catch(() => {}) // never strand the tab on the blank page
+  } finally {
+    bouncing.delete(tabId)
+  }
+}
+
 // Earliest chance: a new tab, while it still shows the blank page its first navigation leaves.
 chrome.tabs.onCreated.addListener((tab) => aimTab(tab.id, tab.pendingUrl ?? tab.url))
-chrome.webNavigation.onBeforeNavigate.addListener(({ tabId, frameId, url }) => frameId === 0 && aimTab(tabId, url, true))
-// Again at commit, for tabs that started on a page the debugger can't attach to (the new tab page).
-// An unchanged cover is a no-op, so this never disturbs a tab that's already right.
-chrome.webNavigation.onCommitted.addListener(({ tabId, frameId, url }) => frameId === 0 && aimTab(tabId, url))
+chrome.webNavigation.onBeforeNavigate.addListener(async ({ tabId, frameId, url }) => {
+  if (frameId !== 0 || bouncing.has(tabId)) return
+  const cover = await deepCover(url)
+  if (cover && (await applyDebugger(tabId, cover, true)) === 'unreachable' && /^https?:/.test(url)) bounce(tabId, url, cover)
+})
+// Again at commit, for anything that still slipped past. An unchanged cover is a no-op, so this
+// never disturbs a tab that's already right.
+chrome.webNavigation.onCommitted.addListener(({ tabId, frameId, url }) => frameId === 0 && !bouncing.has(tabId) && aimTab(tabId, url))
 // Cross-site iframes and workers wait, paused, for the cover of the page they sit in.
 chrome.debugger.onEvent.addListener((source, method, params) => {
   if (method !== 'Target.attachedToTarget') return

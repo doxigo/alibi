@@ -1,6 +1,6 @@
 import { detachDebugger } from './debugger.js'
 import locationsConfigurations from './locationsConfigurations.js'
-import { coverFor, siteKey, userScriptsAvailable } from './sites.js'
+import { coverFor, siteKey, userScriptsAvailable, userScriptsPermitted } from './sites.js'
 
 const $ = (selector) => document.querySelector(selector)
 
@@ -269,7 +269,8 @@ const renderMode = () => {
 
 // One notice at a time: an error outranks the User Scripts hint, which returns once it's fixed.
 const updateHint = () => {
-  userScriptsHint.hidden = deepInput.checked || userScriptsAvailable() || !fieldError.hidden || !ipError.hidden
+  userScriptsHint.hidden =
+    !userScriptsPermitted || deepInput.checked || userScriptsAvailable() || !fieldError.hidden || !ipError.hidden
 }
 
 // --- Saving ----------------------------------------------------------------------------------

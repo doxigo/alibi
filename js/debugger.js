@@ -1,4 +1,4 @@
-import { isActive } from './sites.js'
+import { isActive, languagesFor } from './sites.js'
 
 // Cross-site iframes and workers run in their own renderer, which the tab's own emulation never
 // reaches. Auto-attaching hands each one to us; with `pause` it is held at birth until it has the
@@ -17,6 +17,21 @@ const armed = new Set()
 
 const send = (target, method, params) => chrome.debugger.sendCommand(target, method, params).catch(() => {})
 
+// The browser's own user agent and client hints, re-sent unchanged: an override that sets only
+// Accept-Language would otherwise blank navigator.userAgentData, a giveaway of its own.
+const userAgent = (async () => {
+  const data = navigator.userAgentData
+  if (!data) return null
+  const high = await data.getHighEntropyValues(['architecture', 'bitness', 'fullVersionList', 'model', 'platformVersion', 'wow64'])
+  return {
+    userAgent: navigator.userAgent,
+    userAgentMetadata: {
+      brands: data.brands, mobile: data.mobile, platform: data.platform, fullVersionList: high.fullVersionList,
+      platformVersion: high.platformVersion, architecture: high.architecture, model: high.model, bitness: high.bitness, wow64: high.wow64,
+    },
+  }
+})()
+
 // Sent back to back, not awaited one by one: CDP runs them in order. Chrome refuses a second
 // override while one is active, so each is cleared before it's set. Resolves once all have run.
 const emulate = (target, { timezone, locale, lat, lon }) =>
@@ -27,10 +42,17 @@ const emulate = (target, { timezone, locale, lat, lon }) =>
     locale && send(target, 'Emulation.setLocaleOverride', { locale }),
     send(target, 'Emulation.clearGeolocationOverride'),
     (lat || lon) && send(target, 'Emulation.setGeolocationOverride', { latitude: lat, longitude: lon, accuracy: 1 }),
+    // Sets navigator.language(s) (and the header, which background.js also sets for timing's sake).
+    // Chrome adds the q-values itself.
+    // A cover without a locale gets the browser's own list back.
+    userAgent.then((ua) => ua && send(target, 'Emulation.setUserAgentOverride', {
+      ...ua, acceptLanguage: (locale ? languagesFor(locale) : navigator.languages).join(','),
+    })),
   ])
 
 // Deep mode: point the tab's CDP emulation at this cover. A tab with nothing to spoof is
 // detached so its banner goes away. `replacing` is true just before the tab's page navigates away.
+// Resolves 'unreachable' while the tab shows a browser page (chrome://), which can't be debugged.
 // ponytail: Chrome holds renderer commands until a cross-site navigation commits, so when the
 // cover *changes* between two sites, a page that arrives instantly (measured at 0ms latency, not
 // at 60ms) can run its first inline scripts with the previous cover. Iframes and workers are exact.
@@ -42,7 +64,12 @@ const applyDebugger = async (tabId, cover, replacing = false) => {
     return
   }
   // getTargets() also reports other debuggers and briefly misreports new tabs, so just try.
-  const fresh = await chrome.debugger.attach({ tabId }, '1.3').then(() => true, () => false)
+  let unreachable = false
+  const fresh = await chrome.debugger.attach({ tabId }, '1.3').then(
+    () => true,
+    (error) => ((unreachable = error.message.includes('chrome://')), false), // otherwise: already attached
+  )
+  if (unreachable) return 'unreachable'
   if (fresh) {
     applied.delete(tabId)
     armed.delete(tabId)

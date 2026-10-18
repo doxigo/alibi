@@ -28,6 +28,7 @@
     "webNavigation",
     "scripting",
     "userScripts",
+    "declarativeNetRequestWithHostAccess",
     "debugger"
   ],
   "host_permissions": [

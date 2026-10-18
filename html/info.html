@@ -76,7 +76,7 @@
         <div class="p-4">
           <dt class="text-[17px] font-bold text-ink">Stealth</dt>
           <dd class="mt-1 text-[15px] leading-[1.55] text-ink2">The default. Rewrites the clock, language and
-            location inside each page. Chrome shows no banner. Web Workers still see your real time zone.</dd>
+            location inside each page and its frames and workers. Chrome shows no banner. Workers loaded from a file still see your real time zone.</dd>
         </div>
         <div class="border-l-[1.5px] border-ink p-4 max-[560px]:border-l-0 max-[560px]:border-t-[1.5px]">
           <dt class="text-[17px] font-bold text-ink">Deep</dt>
@@ -86,6 +86,7 @@
         </div>
       </dl>
 
+      <div id="userScriptsGuide">
       <h2>Cover the first moment of every page</h2>
       <p>Some sites read your time zone the instant a page opens, before Stealth Mode can load. To close that gap:</p>
       <ol class="mt-3 flex flex-col gap-2">
@@ -96,6 +97,7 @@
         <li class="grid grid-cols-[28px_1fr]"><span class="numerals font-bold text-airmail">3</span>
           <span>Turn on <strong>Allow User Scripts</strong>. Alibi then runs before any script on the page.</span></li>
       </ol>
+      </div>
 
       <h2>A different cover for each site</h2>
       <p>The popup has two tabs. <strong>All sites</strong> is your usual cover. The second tab is named after the

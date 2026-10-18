@@ -40,6 +40,8 @@ execFileSync('node', ['--no-warnings', '--input-type=module', '-e', `
     assert.equal((1234.5).toLocaleString(), '1.234,5')
     assert.equal(new Intl.NumberFormat().resolvedOptions().locale, 'de-DE')
     assert.equal(Intl.DateTimeFormat().resolvedOptions().locale, 'de-DE')
+    assert.equal(navigator.language, 'de-DE')
+    assert.deepEqual([...navigator.languages], ['de-DE', 'de'])
     assert.equal(new Date(0).toLocaleDateString(undefined, { timeZone: 'UTC' }), '1.1.1970')
     assert.equal(Function.prototype.toString.call(Intl.NumberFormat), 'function NumberFormat() { [native code] }')
     assert.equal(String(Number.prototype.toLocaleString), 'function toLocaleString() { [native code] }')

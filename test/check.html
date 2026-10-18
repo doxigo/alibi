@@ -10,8 +10,9 @@
   </script>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Alibi check</title>
-  <link rel="icon" href="/mark.svg">
-  <link rel="stylesheet" href="/css/style.css">
+  <meta name="accept-language" content="%ACCEPT_LANGUAGE%"> <!-- filled in by test/serve.mjs -->
+  <link rel="icon" href="mark.svg">
+  <link rel="stylesheet" href="css/style.css">
   <style>
     /* Tokens, font, focus and selection come from Alibi's own css/style.css. */
     body {
@@ -282,7 +283,7 @@
   <div class="airmail-edge h-[10px]" aria-hidden="true"></div>
   <main>
     <header>
-      <img src="/mark.svg" alt="">
+      <img src="mark.svg" alt="">
       <h1>Alibi check</h1>
       <span class="host" id="host"></span>
     </header>
@@ -313,22 +314,30 @@
     <h2>How to test</h2>
     <ol>
       <li>Change a setting in Alibi, then reload this page (or press <strong>Reload to apply</strong> in the popup).</li>
-      <li>Try the hardest case, HTML that arrives instantly: <a href="?delay=0">?delay=0</a>. Then a normal network
-        delay: <a href="?delay=150">?delay=150</a>.</li>
-      <li>Give <code>localhost</code> its own cover in the popup. Both iframes should follow this page, not their own
-        address.</li>
-      <li><strong>Stealth:</strong> expect the Web Worker and new blank iframe to show your real zone. With “Allow User
-        Scripts” off, the iframes and the first inline script can too. <strong>Deep:</strong> every row should match.</li>
-      <li>Open the <a id="otherSite" href="#">same page on the other site</a> to swap which address is the cross-site one.
-      </li>
+      <li class="local-only">Try the hardest case, HTML that arrives instantly: <a href="?delay=0">?delay=0</a>. Then a
+        normal network delay: <a href="?delay=150">?delay=150</a>.</li>
+      <li>Give <code id="hostName">this site</code> its own cover in the popup. The iframes should follow this page, not
+        their own address.</li>
+      <li><strong>Stealth:</strong> the two workers started from this site’s own files show your real zone; third-party
+        scripts can only start blob workers, which match. With “Allow User Scripts” off, the iframes and first inline
+        script can show it too. <strong>Deep:</strong> every row should match.</li>
+      <li class="local-only">Open the <a id="otherSite" href="#">same page on the other site</a> to swap which address is
+        the cross-site one.</li>
+      <li class="hosted-only">The cross-site iframe, instant-HTML and strict-policy cases need a second site and a server
+        that can delay its answer. Run the local copy for those: <code>yarn testpage</code>.</li>
     </ol>
   </main>
   <div class="frames" aria-hidden="true" id="frames"></div>
 
   <script>
+    // Served locally by test/serve.mjs, or as a static copy on GitHub Pages.
+    const local = ['localhost', '127.0.0.1'].includes(location.hostname)
+    for (const el of document.querySelectorAll('.local-only')) el.hidden = !local
+    for (const el of document.querySelectorAll('.hosted-only')) el.hidden = local
     const otherHost = location.hostname === '127.0.0.1' ? 'localhost' : '127.0.0.1'
     const otherOrigin = `${location.protocol}//${otherHost}${location.port ? ':' + location.port : ''}`
     document.getElementById('host').textContent = location.host
+    document.getElementById('hostName').textContent = location.hostname
     document.getElementById('otherSite').href = otherOrigin + location.pathname + location.search
 
     const read = (w) => ({
@@ -347,9 +356,11 @@
       { id: 'early', name: 'First inline script', why: 'Runs before anything else on this page', value: window.early },
       { id: 'page', name: 'This page', why: 'Read after the page loaded', value: read(window) },
       { id: 'same', name: 'Same-site iframe', why: `Embedded from ${location.host}` },
-      { id: 'cross', name: 'Cross-site iframe', why: `Embedded from ${otherOrigin.replace(/^https?:\/\//, '')}` },
+      { id: 'cross', name: 'Cross-site iframe', why: local ? `Embedded from ${otherOrigin.replace(/^https?:\/\//, '')}` : 'Needs a second site: run yarn testpage', ...(!local && { error: 'Local copy only' }) },
       { id: 'blank', name: 'New blank iframe', why: 'Created by script: a fresh JavaScript world' },
-      { id: 'worker', name: 'Web Worker', why: 'Runs scripts off the page' },
+      { id: 'worker', name: 'Web Worker', why: 'Started from a blob, the usual way to probe' },
+      { id: 'fileWorker', name: 'Web Worker from a file', why: 'Started from /worker.js, loads its own files' },
+      { id: 'moduleWorker', name: 'Module worker from a file', why: 'Started from /worker.mjs, imports its own files' },
     ]
     const byId = Object.fromEntries(sources.map((s) => [s.id, s]))
 
@@ -363,13 +374,26 @@
       byId.blank.error = 'Blocked'
     }
 
-    const worker = new Worker(URL.createObjectURL(new Blob([
-      `postMessage({ zone: Intl.DateTimeFormat().resolvedOptions().timeZone, offset: -new Date().getTimezoneOffset(), locale: Intl.NumberFormat().resolvedOptions().locale })`,
-    ], { type: 'text/javascript' })))
-    worker.onmessage = (event) => {
-      byId.worker.value = event.data
-      render()
+    // Each worker reports on its own: a page policy can block one kind and not another.
+    const startWorker = (id, make) => {
+      try {
+        const worker = make()
+        worker.onmessage = (event) => ((byId[id].value = event.data), render())
+        worker.onerror = (event) => ((byId[id].error = `Failed: ${event.message || 'error'}`), render())
+      } catch (error) {
+        byId[id].error = 'Blocked by this page’s policy'
+      }
     }
+    startWorker('worker', () => {
+      const url = URL.createObjectURL(new Blob([
+        `postMessage({ zone: Intl.DateTimeFormat().resolvedOptions().timeZone, offset: -new Date().getTimezoneOffset(), locale: Intl.NumberFormat().resolvedOptions().locale })`,
+      ], { type: 'text/javascript' }))
+      const worker = new Worker(url)
+      URL.revokeObjectURL(url) // pages often do this straight away
+      return worker
+    })
+    startWorker('fileWorker', () => new Worker('worker.js'))
+    startWorker('moduleWorker', () => new Worker('worker.mjs', { type: 'module' }))
 
     addEventListener('message', (event) => {
       const source = byId[event.data?.alibiCheck]
@@ -379,9 +403,10 @@
       if (event.data.early.zone !== event.data.now.zone) source.earlyZone = event.data.early.zone
       render()
     })
-    for (const [id, origin] of [['same', location.origin], ['cross', otherOrigin]]) {
+    for (const [id, src] of [['same', 'frame.html'], ['cross', local && `${otherOrigin}/frame.html`]]) {
+      if (!src) continue
       const frame = document.createElement('iframe')
-      frame.src = `${origin}/frame.html?as=${id}`
+      frame.src = `${src}?as=${id}`
       document.getElementById('frames').append(frame)
     }
     setTimeout(() => {
@@ -399,7 +424,8 @@
           const text = s.error ?? 'Waiting…'
           return `<tr><td>${s.name}<span class="why">${s.why}</span></td>${['Time zone', 'UTC offset', 'Locale'].map((l) => `<td data-label="${l}" class="pending">${text}</td>`).join('')}</tr>`
         }
-        const why = esc(s.earlyZone ? `Its first script saw ${s.earlyZone}` : s.why)
+        const broken = v.loads && v.loads !== 'ok' && `Couldn’t load its own files: ${v.loads}`
+        const why = esc(broken || (s.earlyZone ? `Its first script saw ${s.earlyZone}` : s.why))
         return `<tr><td>${s.name}<span class="why">${why}</span></td>` +
           cell('Time zone', v.zone, v.zone !== reference.zone || !!s.earlyZone) +
           cell('UTC offset', formatOffset(v.offset), v.offset !== reference.offset) +
@@ -408,7 +434,7 @@
       document.getElementById('sources').innerHTML = rows.join('')
 
       const answered = sources.filter((s) => s.value)
-      const leaks = answered.filter((s) => s.value.zone !== reference.zone || s.value.offset !== reference.offset || s.value.locale !== reference.locale || s.earlyZone)
+      const leaks = answered.filter((s) => s.value.zone !== reference.zone || s.value.offset !== reference.offset || s.value.locale !== reference.locale || s.earlyZone || (s.value.loads && s.value.loads !== 'ok'))
       const verdict = document.getElementById('verdict')
       const detail = document.getElementById('verdictDetail')
       const story = `${reference.zone} (${formatOffset(reference.offset)}, ${reference.locale})`
@@ -417,9 +443,12 @@
         verdict.textContent = `${leaks.length} of ${answered.length} sources tell a different story`
         detail.textContent = `This page says ${story}. ${leaks.map((s) => s.name).join(', ')} ${leaks.length === 1 ? 'disagrees' : 'disagree'}. A site can compare them.`
       } else {
-        verdict.dataset.state = answered.length === sources.length ? 'ok' : 'pending'
-        verdict.textContent = answered.length === sources.length ? `One story: every source says ${reference.zone}` : 'Checking every source…'
-        detail.textContent = answered.length === sources.length ? `${formatOffset(reference.offset)} · ${reference.locale}. If that’s your cover, Alibi is holding up here.` : ''
+        // A source that can't run here (blocked, or local-only) counts as settled, not as agreeing.
+        const settled = sources.every((s) => s.value || s.error)
+        const every = answered.length === sources.length ? 'every source' : 'every source that answered'
+        verdict.dataset.state = settled ? 'ok' : 'pending'
+        verdict.textContent = settled ? `One story: ${every} says ${reference.zone}` : 'Checking every source…'
+        detail.textContent = settled ? `${formatOffset(reference.offset)} · ${reference.locale}. If that’s your cover, Alibi is holding up here.` : ''
       }
     }
 
@@ -430,6 +459,12 @@
       return part === 'GMT' ? 'UTC+00:00' : part.replace('GMT', 'UTC')
     }
     const page = byId.page.value
+    const agrees = (tag) => tag.split(/[;,]/)[0].trim() === page.locale
+    // The local server echoes the header into the page; the static copy asks httpbin.org instead.
+    const echoed = document.querySelector('meta[name="accept-language"]').content
+    const acceptLanguage = echoed !== '%ACCEPT_LANGUAGE%'
+      ? Promise.resolve([echoed, ''])
+      : fetch('https://httpbin.org/headers').then((r) => r.json()).then((d) => [d.headers['Accept-Language'] ?? '', ' (as httpbin.org received it)'])
     const dateOffset = formatOffset(page.offset)
     const native = Function.prototype.toString.call(Date.prototype.getHours)
     const signals = [
@@ -438,9 +473,14 @@
       ['Date, local format', esc(new Date().toLocaleString())],
       ['Number, local format', esc((1234567.891).toLocaleString())],
       ['Date methods look native', native === 'function getHours() { [native code] }' ? '<strong>Yes</strong>' : `<strong class="differs">No</strong> ${esc(native.slice(0, 80))}`],
-      ['Browser language', `${esc(navigator.languages.join(', '))}. Alibi doesn’t change this, or the Accept-Language header.`],
+      ['Browser language', `${agrees(navigator.language) ? '' : '<strong class="differs">Differs</strong> '}${esc(navigator.languages.join(', '))}`],
+      ['Accept-Language header', '<span id="acceptLanguage">Checking…</span>'],
     ]
     document.getElementById('signals').innerHTML = signals.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('')
+    acceptLanguage.then(
+      ([header, how]) => (document.getElementById('acceptLanguage').innerHTML = `${agrees(header) ? '' : '<strong class="differs">Differs</strong> '}${esc(header)}${how}`),
+      () => (document.getElementById('acceptLanguage').textContent = 'Couldn’t reach httpbin.org to check'),
+    )
 
     document.getElementById('locate').addEventListener('click', () => {
       const out = document.getElementById('location')

@@ -28,7 +28,8 @@ Two modes with an honest trade-off. Stealth Mode (default) patches the page's Ja
 ## Capabilities and Constraints
 
 - Manifest V3; vanilla JS ES modules, no framework. Tailwind CSS 3 builds `tailwind.css` into `css/style.css`. Static HTML pages live in `html/`.
-- Stealth Mode can't reach Web Workers or freshly created about:blank iframes. Deep Mode can, but shows Chrome's banner.
+- Stealth Mode covers new iframes and blob Web Workers, not workers started from the site's own files (wrapping those breaks sites that forbid blob workers). Deep Mode covers those too, but shows Chrome's banner.
+- The locale also drives `navigator.language(s)` and the `Accept-Language` header (declarativeNetRequest rules, per site).
 - Alibi doesn't change the IP address; you need a VPN or proxy for that.
 - The Chrome Web Store restricts the `userScripts` API. A store build may need to drop it.
 - `_locales` holds the extension name and description in 51 languages. The UI copy itself is English-only.

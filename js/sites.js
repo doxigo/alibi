@@ -20,7 +20,13 @@ export const siteKey = (url) => {
   }
 }
 
+// A cover's language preferences, most preferred first: 'ja-JP' -> ['ja-JP', 'ja'].
+export const languagesFor = (locale) => [...new Set([locale, locale.split('-')[0]])]
+
 export const isActive = ({ timezone, locale, lat, lon }) => !!(timezone || locale || lat || lon)
+
+// Store builds leave the permission out: the Web Store reserves userScripts for user-script managers.
+export const userScriptsPermitted = chrome.runtime.getManifest().permissions.includes('userScripts')
 
 // chrome.userScripts only works once the user turns on "Allow User Scripts" for Alibi.
 export const userScriptsAvailable = () => {

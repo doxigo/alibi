@@ -1,0 +1,84 @@
+/* Chrome Web Store images, rendered at exact size by Chrome from these pages.
+   Tokens and the Archivo face come from the extension's own css/style.css. */
+body {
+  margin: 0;
+  overflow: hidden;
+  font-weight: 500;
+}
+
+.frame {
+  position: relative;
+  display: grid;
+  overflow: hidden;
+  background: rgb(var(--paper));
+}
+
+.edge {
+  position: absolute;
+  inset: 0 0 auto;
+  height: 12px;
+}
+
+.edge.bottom {
+  inset: auto 0 0;
+}
+
+h1 {
+  font-size: 58px;
+  font-weight: 800;
+  font-stretch: 86%;
+  letter-spacing: -0.025em;
+  line-height: 1.02;
+  text-wrap: balance;
+}
+
+.lede {
+  margin-top: 18px;
+  max-width: 30ch;
+  font-size: 21px;
+  line-height: 1.45;
+  color: rgb(var(--ink-2));
+}
+
+.points {
+  margin-top: 30px;
+  display: grid;
+  gap: 12px;
+  font-size: 17px;
+  color: rgb(var(--ink));
+}
+
+.points li {
+  display: grid;
+  grid-template-columns: 22px 1fr;
+  align-items: baseline;
+}
+
+.points li::before {
+  content: '';
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  border: 2px solid rgb(var(--red-fill));
+  transform: translateY(-1px);
+}
+
+/* The real popup, as it sits under the toolbar. */
+.popup {
+  display: block;
+  border-radius: 10px;
+  border: 1px solid rgb(var(--rule));
+  box-shadow: 0 30px 70px -24px rgb(22 26 35 / 0.38), 0 3px 8px rgb(22 26 35 / 0.12);
+}
+
+/* A large struck postmark behind the popup. */
+.ghost {
+  position: absolute;
+  color: rgb(var(--ink) / 0.07);
+}
+
+.lockup {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
