@@ -1,5 +1,7 @@
 # Alibi
 
+![Alibi: your browser was somewhere else](store/marquee.png)
+
 [![Build](https://github.com/doxigo/alibi/actions/workflows/build.yml/badge.svg)](https://github.com/doxigo/alibi/actions/workflows/build.yml)
 
 Check what sites see: [doxigo.github.io/alibi](https://doxigo.github.io/alibi/). Every push builds the unpacked extension as a downloadable artifact (Actions → latest run → `alibi-extension`).
@@ -7,6 +9,14 @@ Check what sites see: [doxigo.github.io/alibi](https://doxigo.github.io/alibi/).
 Alibi is a Chrome extension that spoofs your time zone, geolocation, and locale to any location you choose. The locale also sets `navigator.language` and the `Accept-Language` header, so every place a site can ask tells the same story. Use it to test websites in different regions or to match your location data to your VPN's IP address.
 
 Alibi is a fork of [Cloaq](https://github.com/www1z4rd/cloaq) by www1z4rd and is distributed under the same GPL-3.0 license. Changes from Cloaq: it was renamed, and it adds a Stealth Mode that never attaches the debugger, so Chrome's "started debugging this browser" banner doesn't appear.
+
+## Screenshots
+
+| Every site | One site, its own cover | Deep mode, dark theme |
+|---|---|---|
+| <img src="store/src/popup-all-light.png" alt="Popup: sites see you in Tokyo, with the All sites tab selected" width="260"> | <img src="store/src/popup-site-light.png" alt="Popup: bookshop.example sees you in Paris, on that site's own tab" width="260"> | <img src="store/src/popup-deep-dark.png" alt="Popup in dark mode with Deep mode on and Reload to apply highlighted" width="260"> |
+
+The postmark at the top shows what the current site sees: its city, local time and UTC offset.
 
 ## Modes
 
