@@ -4,11 +4,20 @@
 
 [![Build](https://github.com/doxigo/alibi/actions/workflows/build.yml/badge.svg)](https://github.com/doxigo/alibi/actions/workflows/build.yml)
 
-Check what sites see: [doxigo.github.io/alibi](https://doxigo.github.io/alibi/). Every push builds the unpacked extension as a downloadable artifact (Actions → latest run → `alibi-extension`).
+Check what sites see: [doxigo.github.io/alibi](https://doxigo.github.io/alibi/). Download: [latest release](https://github.com/doxigo/alibi/releases/latest).
 
 Alibi is a Chrome extension that spoofs your time zone, geolocation, and locale to any location you choose. The locale also sets `navigator.language` and the `Accept-Language` header, so every place a site can ask tells the same story. Use it to test websites in different regions or to match your location data to your VPN's IP address.
 
 Alibi is a fork of [Cloaq](https://github.com/www1z4rd/cloaq) by www1z4rd and is distributed under the same GPL-3.0 license. Changes from Cloaq: it was renamed, and it adds a Stealth Mode that never attaches the debugger, so Chrome's "started debugging this browser" banner doesn't appear.
+
+## Install
+
+1. Download `alibi-vX.Y.Z.zip` from the [latest release](https://github.com/doxigo/alibi/releases/latest) and unzip it into a folder you'll keep.
+2. Open `chrome://extensions` (in Brave, `brave://extensions`) and turn on **Developer mode**.
+3. Click **Load unpacked** and pick that folder.
+4. Optional, recommended: click **Details** on Alibi and turn on **Allow User Scripts**, so Stealth Mode runs before any page script.
+
+To update, unzip the new release over the same folder and click the reload icon on Alibi's card.
 
 ## Screenshots
 
@@ -94,3 +103,17 @@ yarn testpage     # the check page at http://localhost:8642/, with a second site
 2. Enable Developer mode.
 3. Click "Load unpacked".
 4. Select the `build` folder, or the root folder if you're running `yarn watch:css`.
+
+Every push also builds the unpacked extension as a CI artifact (Actions → latest run → `alibi-extension`).
+
+### Releasing
+
+1. Bump `version` in `manifest.json` and commit it.
+2. Tag it with the release notes as the message, then push the tag:
+
+   ```
+   git tag -a v1.0.1 -m "What changed"
+   git push origin v1.0.1
+   ```
+
+The Release workflow runs the tests, checks that the tag matches `manifest.json`, and publishes a GitHub Release with `alibi-v1.0.1.zip` (for Load unpacked) and `alibi-v1.0.1-chrome-web-store.zip` (for the store).

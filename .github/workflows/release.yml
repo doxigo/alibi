@@ -1,0 +1,49 @@
+name: Release
+
+# Push an annotated tag that matches manifest.json, e.g.
+#   git tag -a v1.0.1 -m "What changed"  &&  git push origin v1.0.1
+# The tag's message becomes the release notes.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # the annotated tag object carries the release notes
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: yarn
+      - run: yarn install --frozen-lockfile
+      - run: yarn test
+      - name: Check the tag matches manifest.json
+        run: |
+          version="v$(node -p "require('./manifest.json').version")"
+          if [ "$version" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME doesn't match manifest.json version $version"
+            exit 1
+          fi
+      - name: Build both packages
+        run: |
+          yarn build:store
+          mv alibi-store.zip "alibi-$GITHUB_REF_NAME-chrome-web-store.zip"
+          yarn build
+          (cd build && zip -qr "../alibi-$GITHUB_REF_NAME.zip" .)
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            "alibi-$GITHUB_REF_NAME.zip#Alibi $GITHUB_REF_NAME (unzip, then Load unpacked)" \
+            "alibi-$GITHUB_REF_NAME-chrome-web-store.zip#Chrome Web Store upload (no userScripts permission)" \
+            --title "Alibi $GITHUB_REF_NAME" \
+            --notes-from-tag \
+            --verify-tag
