@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Alibi guide</title>
+  <link rel="icon" href="../img/icon-32.png">
+  <link rel="stylesheet" href="../css/style.css">
+</head>
+
+<body class="min-h-screen bg-paper text-ink">
+  <div class="airmail-edge h-[10px]" aria-hidden="true"></div>
+
+  <div class="mx-auto max-w-[680px] px-6 pb-20 pt-12">
+    <header class="flex items-center justify-between">
+      <img src="../img/logo.svg" alt="Alibi" class="h-8">
+      <a href="https://github.com/www1z4rd/cloaq" target="_blank" class="text-[13px] font-semibold text-ink2 hover:text-ink">Based on Cloaq</a>
+    </header>
+
+    <section class="mt-14 grid grid-cols-[auto_1fr] items-center gap-x-8 gap-y-6 max-[560px]:grid-cols-1">
+      <svg class="die h-[168px] w-[168px] text-ink" style="--die-rot: -6deg" viewBox="0 0 140 140" aria-hidden="true">
+        <defs>
+          <filter id="bleed" x="-5%" y="-5%" width="110%" height="110%">
+            <feGaussianBlur stdDeviation="0.3" />
+            <feComponentTransfer>
+              <feFuncA type="linear" slope="2.4" intercept="-0.45" />
+            </feComponentTransfer>
+          </filter>
+          <mask id="impression" maskUnits="userSpaceOnUse" x="0" y="0" width="140" height="140">
+            <image href="../img/ink-die.png" width="140" height="140" />
+          </mask>
+          <path id="arcTop" d="M 20 70 A 50 50 0 0 1 120 70" />
+          <path id="arcBottom" d="M 13 70 A 57 57 0 0 0 127 70" />
+        </defs>
+        <g mask="url(#impression)"><g filter="url(#bleed)" fill="currentColor" stroke="currentColor">
+          <circle cx="70" cy="70" r="64" fill="none" stroke-width="2.6" />
+          <circle cx="70" cy="70" r="44" fill="none" stroke-width="1.4" />
+          <circle cx="12.5" cy="70" r="2" stroke="none" />
+          <circle cx="127.5" cy="70" r="2" stroke="none" />
+          <text stroke="none" font-weight="700" letter-spacing="1.6" style="font-stretch: 72%">
+            <textPath href="#arcTop" startOffset="50%" text-anchor="middle" font-size="13">ELSEWHERE</textPath>
+          </text>
+          <text stroke="none" font-weight="600" letter-spacing="1.3" style="font-stretch: 72%">
+            <textPath href="#arcBottom" startOffset="50%" text-anchor="middle" font-size="9.5">ALIBI · LATIN</textPath>
+          </text>
+          <text stroke="none" x="70" y="63" text-anchor="middle" font-size="10" font-weight="600" letter-spacing="0.9"
+            style="font-stretch: 75%">NOT HERE</text>
+          <text stroke="none" x="70" y="88" text-anchor="middle" font-size="25" font-weight="700"
+            style="font-stretch: 80%">alibi</text>
+        </g></g>
+      </svg>
+      <div>
+        <h1 class="text-[40px] font-extrabold leading-[1.02] tracking-[-0.025em] [text-wrap:balance]"
+          style="font-stretch: 86%">Your browser was somewhere else.</h1>
+        <p class="mt-4 max-w-[46ch] text-[17px] leading-[1.55] text-ink2">Alibi makes websites see the time zone,
+          language and location you pick, so they tell the same story as your VPN.</p>
+      </div>
+    </section>
+
+    <article class="letter mt-6">
+      <h2>Get started</h2>
+      <ol class="flex flex-col gap-3">
+        <li class="grid grid-cols-[28px_1fr]"><span class="numerals font-bold text-airmail">1</span>
+          <span>Pin Alibi: open the extensions menu (the puzzle piece next to the address bar) and click the pin
+            beside Alibi.</span></li>
+        <li class="grid grid-cols-[28px_1fr]"><span class="numerals font-bold text-airmail">2</span>
+          <span>Click the Alibi stamp and choose a cover: one of the places, <strong>Match my IP address</strong>, or
+            your own time zone, locale and coordinates.</span></li>
+        <li class="grid grid-cols-[28px_1fr]"><span class="numerals font-bold text-airmail">3</span>
+          <span>Reload the tab. The postmark at the top of the popup shows what sites now see.</span></li>
+      </ol>
+
+      <h2>Two modes</h2>
+      <dl class="grid grid-cols-2 border-[1.5px] border-ink max-[560px]:grid-cols-1">
+        <div class="p-4">
+          <dt class="text-[17px] font-bold text-ink">Stealth</dt>
+          <dd class="mt-1 text-[15px] leading-[1.55] text-ink2">The default. Rewrites the clock, language and
+            location inside each page. Chrome shows no banner. Web Workers still see your real time zone.</dd>
+        </div>
+        <div class="border-l-[1.5px] border-ink p-4 max-[560px]:border-l-0 max-[560px]:border-t-[1.5px]">
+          <dt class="text-[17px] font-bold text-ink">Deep</dt>
+          <dd class="mt-1 text-[15px] leading-[1.55] text-ink2">Spoofs below the page, through Chrome’s debugger,
+            including embedded sites and Web Workers, so it’s much harder to detect. Chrome shows a “started
+            debugging this browser” banner while it’s on.</dd>
+        </div>
+      </dl>
+
+      <h2>Cover the first moment of every page</h2>
+      <p>Some sites read your time zone the instant a page opens, before Stealth Mode can load. To close that gap:</p>
+      <ol class="mt-3 flex flex-col gap-2">
+        <li class="grid grid-cols-[28px_1fr]"><span class="numerals font-bold text-airmail">1</span>
+          <span>Open <code>chrome://extensions</code> (in Brave, <code>brave://extensions</code>).</span></li>
+        <li class="grid grid-cols-[28px_1fr]"><span class="numerals font-bold text-airmail">2</span>
+          <span>Click <strong>Details</strong> on Alibi.</span></li>
+        <li class="grid grid-cols-[28px_1fr]"><span class="numerals font-bold text-airmail">3</span>
+          <span>Turn on <strong>Allow User Scripts</strong>. Alibi then runs before any script on the page.</span></li>
+      </ol>
+
+      <h2>A different cover for each site</h2>
+      <p>The popup has two tabs. <strong>All sites</strong> is your usual cover. The second tab is named after the
+        site you’re on: choose <strong>Give it its own cover</strong> and that site, along with its subdomains, gets
+        its own settings.</p>
+      <p>To keep a site on your real location, such as your bank, give it its own cover and choose
+        <strong>Off (real location)</strong>. Mode applies to all sites.</p>
+
+      <h2>Your IP address</h2>
+      <p>Alibi doesn’t change your IP address. Use a VPN or proxy for that, then choose <strong>Match my IP
+          address</strong> so everything agrees. Alibi only contacts GeoJS (<span class="whitespace-nowrap">get.geojs.io</span>, over HTTPS) when you choose that option.</p>
+
+      <h2>The debugging banner</h2>
+      <p>Only Deep mode shows it. To keep Deep mode without the banner, start Chrome with the
+        <code>--silent-debugger-extension-api</code> flag (<a
+          href="https://www.chromium.org/developers/how-tos/run-chromium-with-flags/" target="_blank">how to run
+          Chrome with flags</a>).</p>
+    </article>
+
+    <footer class="mt-16 border-t border-rule pt-5 text-[13px] leading-[1.6] text-ink3">
+      Alibi is free software under the GPL-3.0 license, based on <a href="https://github.com/www1z4rd/cloaq"
+        target="_blank" class="text-ink2 underline hover:text-ink">Cloaq</a> by www1z4rd. Set in Archivo (SIL Open Font
+      License). <span id="extensionVersion" class="numerals"></span>
+    </footer>
+  </div>
+  <div class="airmail-edge h-[10px]" aria-hidden="true"></div>
+  <script src="../js/info.js"></script>
+</body>
+
+</html>

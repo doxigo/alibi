@@ -1,0 +1,330 @@
+@font-face {
+  font-family: 'Archivo';
+  src: url('../fonts/archivo.woff2') format('woff2');
+  font-weight: 100 900;
+  font-stretch: 62% 125%;
+  font-display: block;
+}
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Envelope stock and cancellation ink. Values are RGB triplets for Tailwind's alpha syntax. */
+:root {
+  color-scheme: light;
+  --paper: 250 251 251;
+  --ink: 22 26 35;
+  --ink-2: 74 82 99;
+  --ink-3: 99 107 124;
+  --rule: 208 213 222;
+  --red: 196 30 42;
+  --blue: 31 63 145;
+  --label: 31 63 145;
+  /* Printed airmail red for filled active states, in both schemes; --red is for red text and rings. */
+  --red-fill: 196 30 42;
+  --on-red-fill: 255 255 255;
+}
+
+/* Night airmail: navy stock, paper-white ink. */
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --paper: 19 32 74;
+    --ink: 236 240 246;
+    --ink-2: 182 190 205;
+    --ink-3: 145 155 173;
+    --rule: 56 74 126;
+    --red: 255 99 104;
+    --blue: 150 178 255;
+    --label: 43 79 176;
+  }
+}
+
+@layer base {
+  /* Display utilities like .flex would otherwise beat the hidden attribute. */
+  [hidden] {
+    display: none !important;
+  }
+  html {
+    @apply bg-paper text-ink antialiased;
+    font-feature-settings: 'tnum' 0;
+  }
+  ::selection {
+    background: rgb(var(--red) / 0.22);
+  }
+  :focus-visible {
+    outline: 2px solid rgb(var(--red));
+    outline-offset: 2px;
+  }
+  a {
+    text-underline-offset: 0.18em;
+    text-decoration-thickness: 1px;
+  }
+}
+
+@layer components {
+  /* The airmail envelope edge is printed stock: true airmail red, white and blue in both schemes. */
+  .airmail-edge {
+    background: repeating-linear-gradient(
+      -48deg,
+      #c41e2a 0 9px,
+      #fff 9px 14px,
+      #1f3f91 14px 23px,
+      #fff 23px 28px
+    );
+  }
+
+  .numerals {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Field labels are set like the small type on a postal form. */
+  .field-label {
+    @apply block text-ink2;
+    font-size: 11px;
+    font-stretch: 88%;
+    font-weight: 600;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+  }
+
+  /* Typed address lines: no box, one hairline rule that inks red on focus. */
+  .address-line {
+    @apply w-full bg-transparent text-ink numerals;
+    font-size: 15px;
+    font-weight: 500;
+    padding: 6px 0 7px;
+    border-bottom: 1px solid rgb(var(--rule));
+    caret-color: rgb(var(--red));
+    transition: border-color 160ms ease-out, box-shadow 160ms ease-out;
+  }
+  .address-line::placeholder {
+    @apply text-ink3;
+    font-weight: 400;
+  }
+  .address-line:hover {
+    border-bottom-color: rgb(var(--ink-3));
+  }
+  .address-line:focus {
+    outline: none;
+    border-bottom-color: rgb(var(--red));
+    box-shadow: 0 1px 0 rgb(var(--red));
+  }
+  .address-line[aria-invalid='true'] {
+    border-bottom-color: rgb(var(--red));
+    box-shadow: 0 1px 0 rgb(var(--red));
+  }
+  select.address-line {
+    appearance: none;
+    cursor: pointer;
+    padding-right: 28px;
+  }
+  select.address-line option,
+  select.address-line optgroup {
+    background: rgb(var(--paper));
+    color: rgb(var(--ink));
+  }
+
+  .quiet-button {
+    @apply inline-flex items-center gap-1.5 rounded text-ink2;
+    height: 32px;
+    padding: 0 8px;
+    font-size: 13px;
+    font-weight: 600;
+    transition: color 140ms ease-out, background-color 140ms ease-out;
+  }
+  .quiet-button:hover {
+    @apply text-ink;
+    background: rgb(var(--ink) / 0.06);
+  }
+  .quiet-button[data-pending='true'] {
+    background: rgb(var(--red-fill));
+    color: rgb(var(--on-red-fill));
+  }
+
+  /* Which record the fields edit: every site, or the current one. */
+  .scope-tabs {
+    @apply flex gap-5 border-b border-rule;
+  }
+  .scope-tabs [role='tab'] {
+    @apply text-ink2;
+    padding: 10px 0 9px;
+    font-size: 13.5px;
+    font-weight: 650;
+    box-shadow: inset 0 0 0 rgb(var(--red));
+    transition: color 140ms ease-out, box-shadow 200ms cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .scope-tabs [role='tab']:hover:not(:disabled) {
+    @apply text-ink;
+  }
+  .scope-tabs [role='tab'][aria-selected='true'] {
+    @apply text-ink;
+    box-shadow: inset 0 -2px 0 rgb(var(--red-fill));
+  }
+  .scope-tabs [role='tab']:disabled {
+    @apply cursor-not-allowed text-ink3;
+  }
+
+  .ink-button {
+    @apply inline-flex items-center rounded text-ink;
+    height: 36px;
+    padding: 0 14px;
+    border: 1.5px solid rgb(var(--ink));
+    font-size: 13.5px;
+    font-weight: 650;
+    transition: background-color 140ms ease-out;
+  }
+  .ink-button:hover {
+    background: rgb(var(--ink) / 0.06);
+  }
+  .link-button {
+    @apply text-ink2 underline;
+    font-size: 12.5px;
+    font-weight: 600;
+    text-underline-offset: 0.18em;
+  }
+  .link-button:hover {
+    @apply text-airmail;
+  }
+
+  /* Stealth | Deep: two hard halves of one switch; the red fill flips across. */
+  .halves {
+    @apply relative grid grid-cols-2;
+    border: 1.5px solid rgb(var(--ink));
+    border-radius: 4px;
+    isolation: isolate;
+  }
+  .halves::before {
+    content: '';
+    position: absolute;
+    inset: 0 50% 0 0;
+    background: rgb(var(--red-fill));
+    z-index: -1;
+    transition: transform 260ms cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .halves:has(input[value='deep']:checked)::before {
+    transform: translateX(100%);
+  }
+  .halves label {
+    @apply flex cursor-pointer flex-col text-ink;
+    padding: 6px 14px 7px;
+    transition: color 200ms ease-out;
+  }
+  .halves label + label {
+    border-left: 1.5px solid rgb(var(--ink));
+  }
+  .halves label:has(input:checked) {
+    color: rgb(var(--on-red-fill));
+  }
+  .halves label:has(input:focus-visible) {
+    outline: 2px solid rgb(var(--red));
+    outline-offset: 3px;
+  }
+  .halves .half-title {
+    font-size: 13.5px;
+    font-weight: 700;
+  }
+
+  /* A gummed postal label with a perforated top edge. */
+  .postal-label {
+    @apply relative text-white;
+    background: rgb(var(--label));
+    padding: 9px 14px 9px;
+    font-size: 12.5px;
+    line-height: 1.45;
+    border-radius: 2px;
+    -webkit-mask: radial-gradient(circle at 5px 0, transparent 2.6px, #000 3px) -5px 0 / 10px 100%;
+    mask: radial-gradient(circle at 5px 0, transparent 2.6px, #000 3px) -5px 0 / 10px 100%;
+  }
+  .postal-label button {
+    @apply font-semibold underline;
+    text-underline-offset: 0.18em;
+  }
+
+  /* Cancellation die */
+  .die {
+    transform: rotate(var(--die-rot, -4deg));
+    transform-origin: 50% 50%;
+  }
+  /* The re-strike: the old impression lifts off, then the new die presses down. */
+  .die-strike {
+    animation: strike 320ms cubic-bezier(0.16, 1, 0.3, 1) var(--strike-delay, 0ms) both;
+  }
+  .die-lift {
+    position: absolute;
+    pointer-events: none;
+    animation: lift 140ms cubic-bezier(0.4, 0, 1, 1) forwards;
+  }
+  @keyframes lift {
+    to {
+      opacity: 0;
+      transform: rotate(var(--die-rot, -4deg)) translateY(-6px) scale(1.06);
+      filter: blur(1.5px);
+    }
+  }
+  @keyframes strike {
+    0% {
+      opacity: 0;
+      transform: rotate(calc(var(--die-rot, -4deg) - 5deg)) scale(1.14);
+      filter: blur(1.5px);
+    }
+    55% {
+      opacity: 1;
+      transform: rotate(var(--die-rot, -4deg)) scale(0.97);
+      filter: blur(0);
+    }
+    100% {
+      transform: rotate(var(--die-rot, -4deg)) scale(1);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .die-strike,
+    .die-lift {
+      animation: none;
+    }
+    .halves::before {
+      transition: none;
+    }
+  }
+
+  /* Info page */
+  .letter h2 {
+    @apply text-ink;
+    font-size: 21px;
+    font-weight: 700;
+    font-stretch: 92%;
+    letter-spacing: -0.01em;
+    margin: 44px 0 10px;
+    text-wrap: balance;
+  }
+  .letter p,
+  .letter ol {
+    max-width: 34rem; /* about 70 characters */
+  }
+  .letter p,
+  .letter li {
+    @apply text-ink2;
+    font-size: 16px;
+    line-height: 1.6;
+  }
+  .letter p + p {
+    margin-top: 12px;
+  }
+  .letter strong {
+    @apply text-ink;
+    font-weight: 650;
+  }
+  .letter a {
+    @apply text-parAvion underline;
+  }
+  .letter code {
+    @apply text-ink;
+    white-space: nowrap;
+    font-size: 0.92em;
+    font-weight: 600;
+    background: rgb(var(--ink) / 0.06);
+    padding: 1px 5px;
+    border-radius: 3px;
+  }
+}

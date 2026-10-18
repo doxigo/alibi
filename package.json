@@ -1,0 +1,14 @@
+{
+  "name": "alibi",
+  "license": "GPL-3.0-only",
+  "dependencies": {
+    "tailwindcss": "^3.4.13"
+  },
+  "scripts": {
+    "build": "rm -rf build && mkdir build && yarn build:css && cp -r html css img fonts js _locales manifest.json build/ && rm -rf build/img/src",
+    "test": "node test/stealth.test.mjs",
+    "testpage": "yarn build:css && node test/serve.mjs",
+    "build:css": "tailwindcss -i ./tailwind.css -o ./css/style.css --minify",
+    "watch:css": "tailwindcss -i ./tailwind.css -o ./css/style.css --minify --watch"
+  }
+}

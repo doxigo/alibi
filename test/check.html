@@ -1,0 +1,459 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <script>
+    // The page's very first script: it runs before anything else here, which is the moment
+    // a fingerprinting script would try to catch the browser's real settings.
+    window.early = { zone: Intl.DateTimeFormat().resolvedOptions().timeZone, offset: -new Date().getTimezoneOffset(), locale: Intl.NumberFormat().resolvedOptions().locale }
+  </script>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Alibi check</title>
+  <link rel="icon" href="/mark.svg">
+  <link rel="stylesheet" href="/css/style.css">
+  <style>
+    /* Tokens, font, focus and selection come from Alibi's own css/style.css. */
+    body {
+      font-weight: 500;
+    }
+
+    a {
+      color: rgb(var(--blue));
+      text-decoration: underline;
+    }
+
+    main {
+      max-width: 880px;
+      margin: 0 auto;
+      padding: 40px 24px 72px;
+    }
+
+    header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    header img {
+      width: 32px;
+      height: 32px;
+    }
+
+    h1 {
+      font-size: 30px;
+      font-weight: 800;
+      font-stretch: 86%;
+      letter-spacing: -0.02em;
+      line-height: 1;
+    }
+
+    .host {
+      margin-left: auto;
+      font-size: 13px;
+      font-weight: 600;
+      color: rgb(var(--ink-2));
+      font-variant-numeric: tabular-nums;
+    }
+
+    .verdict {
+      margin-top: 36px;
+      font-size: 26px;
+      font-weight: 800;
+      font-stretch: 88%;
+      letter-spacing: -0.015em;
+      line-height: 1.2;
+      text-wrap: balance;
+    }
+
+    .verdict[data-state='leak'] {
+      color: rgb(var(--red));
+    }
+
+    .verdict-detail {
+      margin-top: 8px;
+      max-width: 62ch;
+      color: rgb(var(--ink-2));
+    }
+
+    h2 {
+      margin: 44px 0 12px;
+      font-size: 19px;
+      font-weight: 700;
+      font-stretch: 92%;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-variant-numeric: tabular-nums;
+    }
+
+    th {
+      text-align: left;
+      font-size: 11px;
+      font-weight: 600;
+      font-stretch: 88%;
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+      color: rgb(var(--ink-2));
+      padding: 0 12px 8px 0;
+      border-bottom: 1.5px solid rgb(var(--ink));
+    }
+
+    td {
+      padding: 11px 12px 11px 0;
+      border-bottom: 1px solid rgb(var(--rule));
+      vertical-align: top;
+      font-size: 15px;
+    }
+
+    td:first-child {
+      font-weight: 650;
+    }
+
+    .why {
+      display: block;
+      margin-top: 2px;
+      font-size: 12.5px;
+      font-weight: 500;
+      color: rgb(var(--ink-3));
+    }
+
+    .differs {
+      color: rgb(var(--red));
+      font-weight: 650;
+    }
+
+    .differs::after {
+      content: 'differs';
+      display: block;
+      font-size: 10.5px;
+      font-weight: 700;
+      font-stretch: 88%;
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+    }
+
+    .pending {
+      color: rgb(var(--ink-3));
+    }
+
+    dl {
+      display: grid;
+      grid-template-columns: minmax(180px, 240px) 1fr;
+      border-top: 1.5px solid rgb(var(--ink));
+    }
+
+    dt,
+    dd {
+      padding: 11px 0;
+      border-bottom: 1px solid rgb(var(--rule));
+      font-size: 15px;
+    }
+
+    dt {
+      font-weight: 650;
+      padding-right: 16px;
+    }
+
+    dd {
+      color: rgb(var(--ink-2));
+      font-variant-numeric: tabular-nums;
+      overflow-wrap: anywhere;
+    }
+
+    dd strong {
+      color: rgb(var(--ink));
+      font-weight: 650;
+    }
+
+    button {
+      font: inherit;
+      font-size: 14px;
+      font-weight: 650;
+      color: rgb(var(--ink));
+      background: transparent;
+      border: 1.5px solid rgb(var(--ink));
+      border-radius: 4px;
+      height: 38px;
+      padding: 0 16px;
+      cursor: pointer;
+    }
+
+    button:hover {
+      background: rgb(var(--ink) / 0.06);
+    }
+
+    #location {
+      margin-top: 12px;
+      color: rgb(var(--ink-2));
+      font-variant-numeric: tabular-nums;
+    }
+
+    ol {
+      list-style: decimal;
+      padding-left: 1.4em;
+      max-width: 34rem;
+      color: rgb(var(--ink-2));
+    }
+
+    ol li+li {
+      margin-top: 8px;
+    }
+
+    ol strong {
+      color: rgb(var(--ink));
+      font-weight: 650;
+    }
+
+    code {
+      font-size: 0.92em;
+      font-weight: 600;
+      color: rgb(var(--ink));
+      background: rgb(var(--ink) / 0.06);
+      padding: 1px 5px;
+      border-radius: 3px;
+      white-space: nowrap;
+    }
+
+    .frames {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip-path: inset(50%);
+    }
+
+    @media (max-width: 640px) {
+      main {
+        padding: 28px 16px 56px;
+      }
+
+      .host {
+        display: none;
+      }
+
+      thead {
+        display: none;
+      }
+
+      tr {
+        display: grid;
+        grid-template-columns: 1fr 1fr 1fr;
+        column-gap: 12px;
+        padding: 12px 0;
+        border-bottom: 1px solid rgb(var(--rule));
+      }
+
+      td {
+        border: 0;
+        padding: 2px 0;
+      }
+
+      td:first-child {
+        grid-column: 1 / -1;
+        padding-bottom: 6px;
+      }
+
+      td[data-label]::before {
+        content: attr(data-label);
+        display: block;
+        font-size: 10.5px;
+        font-weight: 600;
+        letter-spacing: 0.07em;
+        text-transform: uppercase;
+        color: rgb(var(--ink-3));
+      }
+
+      dl {
+        grid-template-columns: 1fr;
+      }
+
+      dt {
+        border-bottom: 0;
+        padding-bottom: 0;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <div class="airmail-edge h-[10px]" aria-hidden="true"></div>
+  <main>
+    <header>
+      <img src="/mark.svg" alt="">
+      <h1>Alibi check</h1>
+      <span class="host" id="host"></span>
+    </header>
+
+    <p class="verdict" id="verdict" aria-live="polite">Checking every source…</p>
+    <p class="verdict-detail" id="verdictDetail"></p>
+
+    <h2>What each part of a page can read</h2>
+    <table>
+      <thead>
+        <tr>
+          <th scope="col">Source</th>
+          <th scope="col">Time zone</th>
+          <th scope="col">UTC offset</th>
+          <th scope="col">Locale</th>
+        </tr>
+      </thead>
+      <tbody id="sources"></tbody>
+    </table>
+
+    <h2>Location</h2>
+    <button id="locate" type="button">Ask for my location</button>
+    <p id="location" aria-live="polite">Not asked yet. Your browser will ask for permission first.</p>
+
+    <h2>Other signals</h2>
+    <dl id="signals"></dl>
+
+    <h2>How to test</h2>
+    <ol>
+      <li>Change a setting in Alibi, then reload this page (or press <strong>Reload to apply</strong> in the popup).</li>
+      <li>Try the hardest case, HTML that arrives instantly: <a href="?delay=0">?delay=0</a>. Then a normal network
+        delay: <a href="?delay=150">?delay=150</a>.</li>
+      <li>Give <code>localhost</code> its own cover in the popup. Both iframes should follow this page, not their own
+        address.</li>
+      <li><strong>Stealth:</strong> expect the Web Worker and new blank iframe to show your real zone. With “Allow User
+        Scripts” off, the iframes and the first inline script can too. <strong>Deep:</strong> every row should match.</li>
+      <li>Open the <a id="otherSite" href="#">same page on the other site</a> to swap which address is the cross-site one.
+      </li>
+    </ol>
+  </main>
+  <div class="frames" aria-hidden="true" id="frames"></div>
+
+  <script>
+    const otherHost = location.hostname === '127.0.0.1' ? 'localhost' : '127.0.0.1'
+    const otherOrigin = `${location.protocol}//${otherHost}${location.port ? ':' + location.port : ''}`
+    document.getElementById('host').textContent = location.host
+    document.getElementById('otherSite').href = otherOrigin + location.pathname + location.search
+
+    const read = (w) => ({
+      zone: w.Intl.DateTimeFormat().resolvedOptions().timeZone,
+      offset: -new w.Date().getTimezoneOffset(),
+      locale: w.Intl.NumberFormat().resolvedOptions().locale,
+    })
+    const esc = (text) => String(text).replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`)
+    const formatOffset = (minutes) => {
+      const sign = minutes < 0 ? '-' : '+'
+      const abs = Math.abs(minutes)
+      return `UTC${sign}${String(Math.floor(abs / 60)).padStart(2, '0')}:${String(abs % 60).padStart(2, '0')}`
+    }
+
+    const sources = [
+      { id: 'early', name: 'First inline script', why: 'Runs before anything else on this page', value: window.early },
+      { id: 'page', name: 'This page', why: 'Read after the page loaded', value: read(window) },
+      { id: 'same', name: 'Same-site iframe', why: `Embedded from ${location.host}` },
+      { id: 'cross', name: 'Cross-site iframe', why: `Embedded from ${otherOrigin.replace(/^https?:\/\//, '')}` },
+      { id: 'blank', name: 'New blank iframe', why: 'Created by script: a fresh JavaScript world' },
+      { id: 'worker', name: 'Web Worker', why: 'Runs scripts off the page' },
+    ]
+    const byId = Object.fromEntries(sources.map((s) => [s.id, s]))
+
+    // A fresh about:blank realm, read the instant it exists.
+    try {
+      const frame = document.createElement('iframe')
+      document.getElementById('frames').append(frame)
+      byId.blank.value = read(frame.contentWindow)
+      frame.remove()
+    } catch (error) {
+      byId.blank.error = 'Blocked'
+    }
+
+    const worker = new Worker(URL.createObjectURL(new Blob([
+      `postMessage({ zone: Intl.DateTimeFormat().resolvedOptions().timeZone, offset: -new Date().getTimezoneOffset(), locale: Intl.NumberFormat().resolvedOptions().locale })`,
+    ], { type: 'text/javascript' })))
+    worker.onmessage = (event) => {
+      byId.worker.value = event.data
+      render()
+    }
+
+    addEventListener('message', (event) => {
+      const source = byId[event.data?.alibiCheck]
+      if (!source) return
+      source.value = event.data.now
+      // An iframe whose first script saw something else leaked for a moment, even if it caught up.
+      if (event.data.early.zone !== event.data.now.zone) source.earlyZone = event.data.early.zone
+      render()
+    })
+    for (const [id, origin] of [['same', location.origin], ['cross', otherOrigin]]) {
+      const frame = document.createElement('iframe')
+      frame.src = `${origin}/frame.html?as=${id}`
+      document.getElementById('frames').append(frame)
+    }
+    setTimeout(() => {
+      for (const s of sources) if (!s.value && !s.error) s.error = 'No answer'
+      render()
+    }, 4000)
+
+    const render = () => {
+      const reference = byId.page.value
+      const rows = sources.map((s) => {
+        const v = s.value
+        const cell = (label, text, differs) =>
+          `<td data-label="${label}"${differs ? ' class="differs"' : ''}>${esc(text)}</td>`
+        if (!v) {
+          const text = s.error ?? 'Waiting…'
+          return `<tr><td>${s.name}<span class="why">${s.why}</span></td>${['Time zone', 'UTC offset', 'Locale'].map((l) => `<td data-label="${l}" class="pending">${text}</td>`).join('')}</tr>`
+        }
+        const why = esc(s.earlyZone ? `Its first script saw ${s.earlyZone}` : s.why)
+        return `<tr><td>${s.name}<span class="why">${why}</span></td>` +
+          cell('Time zone', v.zone, v.zone !== reference.zone || !!s.earlyZone) +
+          cell('UTC offset', formatOffset(v.offset), v.offset !== reference.offset) +
+          cell('Locale', v.locale, v.locale !== reference.locale) + '</tr>'
+      })
+      document.getElementById('sources').innerHTML = rows.join('')
+
+      const answered = sources.filter((s) => s.value)
+      const leaks = answered.filter((s) => s.value.zone !== reference.zone || s.value.offset !== reference.offset || s.value.locale !== reference.locale || s.earlyZone)
+      const verdict = document.getElementById('verdict')
+      const detail = document.getElementById('verdictDetail')
+      const story = `${reference.zone} (${formatOffset(reference.offset)}, ${reference.locale})`
+      if (leaks.length) {
+        verdict.dataset.state = 'leak'
+        verdict.textContent = `${leaks.length} of ${answered.length} sources tell a different story`
+        detail.textContent = `This page says ${story}. ${leaks.map((s) => s.name).join(', ')} ${leaks.length === 1 ? 'disagrees' : 'disagree'}. A site can compare them.`
+      } else {
+        verdict.dataset.state = answered.length === sources.length ? 'ok' : 'pending'
+        verdict.textContent = answered.length === sources.length ? `One story: every source says ${reference.zone}` : 'Checking every source…'
+        detail.textContent = answered.length === sources.length ? `${formatOffset(reference.offset)} · ${reference.locale}. If that’s your cover, Alibi is holding up here.` : ''
+      }
+    }
+
+    // Signals that sit next to the time zone and locale.
+    const intlOffset = (zone) => {
+      const part = new Intl.DateTimeFormat('en-US', { timeZone: zone, timeZoneName: 'longOffset' })
+        .formatToParts(new Date()).find((p) => p.type === 'timeZoneName').value
+      return part === 'GMT' ? 'UTC+00:00' : part.replace('GMT', 'UTC')
+    }
+    const page = byId.page.value
+    const dateOffset = formatOffset(page.offset)
+    const native = Function.prototype.toString.call(Date.prototype.getHours)
+    const signals = [
+      ['Date and Intl agree', intlOffset(page.zone) === dateOffset ? `<strong>Yes</strong>, both say ${dateOffset}` : `<strong class="differs">No</strong> Date says ${dateOffset}, Intl says ${intlOffset(page.zone)}`],
+      ['Date as text', esc(new Date().toString())],
+      ['Date, local format', esc(new Date().toLocaleString())],
+      ['Number, local format', esc((1234567.891).toLocaleString())],
+      ['Date methods look native', native === 'function getHours() { [native code] }' ? '<strong>Yes</strong>' : `<strong class="differs">No</strong> ${esc(native.slice(0, 80))}`],
+      ['Browser language', `${esc(navigator.languages.join(', '))}. Alibi doesn’t change this, or the Accept-Language header.`],
+    ]
+    document.getElementById('signals').innerHTML = signals.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('')
+
+    document.getElementById('locate').addEventListener('click', () => {
+      const out = document.getElementById('location')
+      out.textContent = 'Asking…'
+      navigator.geolocation.getCurrentPosition(
+        ({ coords }) => (out.textContent = `${coords.latitude.toFixed(4)}, ${coords.longitude.toFixed(4)} · accuracy ${Math.round(coords.accuracy)} m`),
+        (error) => (out.textContent = error.code === 1 ? 'Permission denied. Allow location for this site and try again.' : `No position: ${error.message}`),
+        { timeout: 10000 },
+      )
+    })
+
+    render()
+  </script>
+</body>
+
+</html>

@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <script>
+    // Captured by the frame's very first script, before anything else can run.
+    window.early = { zone: Intl.DateTimeFormat().resolvedOptions().timeZone, offset: -new Date().getTimezoneOffset(), locale: Intl.NumberFormat().resolvedOptions().locale }
+  </script>
+</head>
+
+<body>
+  <script>
+    const now = { zone: Intl.DateTimeFormat().resolvedOptions().timeZone, offset: -new Date().getTimezoneOffset(), locale: Intl.NumberFormat().resolvedOptions().locale, time: new Date().toTimeString() }
+    parent.postMessage({ alibiCheck: new URLSearchParams(location.search).get('as'), early, now }, '*')
+  </script>
+</body>
+
+</html>

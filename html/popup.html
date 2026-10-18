@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Alibi</title>
+  <link rel="stylesheet" href="../css/style.css">
+</head>
+
+<body class="w-[400px] text-ink">
+  <div class="airmail-edge h-[6px]" aria-hidden="true"></div>
+
+  <header class="flex items-center justify-between pl-5 pr-3 pt-2">
+    <div class="flex items-center gap-2">
+      <img src="../img/mark.svg" alt="" class="h-[22px] w-[22px]">
+      <span class="text-[19px] font-extrabold tracking-[-0.02em]">alibi</span>
+    </div>
+    <div class="flex items-center gap-1">
+      <button id="reloadButton" class="quiet-button" data-pending="false">
+        <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8"
+          stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M16 10a6 6 0 1 1-1.76-4.24" />
+          <path d="M16.2 3.5v3.2H13" />
+        </svg>
+        <span id="reloadLabel">Reload tab</span>
+      </button>
+      <button id="infoButton" class="quiet-button !px-[7px]" aria-label="Open the Alibi guide" title="Guide">
+        <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8"
+          stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="10" cy="10" r="7.25" />
+          <path d="M8 8a2 2 0 1 1 2.9 1.8c-.6.3-.9.8-.9 1.4v.3" />
+          <path d="M10 14.2v.1" />
+        </svg>
+      </button>
+    </div>
+  </header>
+
+  <main>
+    <section class="relative flex items-center gap-3 pl-4 pr-5 pt-1 pb-3" aria-live="polite">
+      <svg id="die" class="die h-[128px] w-[128px] shrink-0 text-ink" viewBox="0 0 140 140" aria-hidden="true">
+        <defs>
+          <filter id="bleed" x="-5%" y="-5%" width="110%" height="110%">
+            <feGaussianBlur stdDeviation="0.3" />
+            <feComponentTransfer>
+              <feFuncA type="linear" slope="2.4" intercept="-0.45" />
+            </feComponentTransfer>
+          </filter>
+          <mask id="impression" maskUnits="userSpaceOnUse" x="0" y="0" width="140" height="140">
+            <image href="../img/ink-die.png" width="140" height="140" />
+          </mask>
+          <path id="arcTop" d="M 20 70 A 50 50 0 0 1 120 70" />
+          <path id="arcBottom" d="M 13 70 A 57 57 0 0 0 127 70" />
+        </defs>
+        <g mask="url(#impression)"><g filter="url(#bleed)" fill="currentColor" stroke="currentColor">
+          <circle id="dieRing" cx="70" cy="70" r="64" fill="none" stroke-width="2.6" />
+          <circle cx="70" cy="70" r="44" fill="none" stroke-width="1.4" />
+          <circle cx="12.5" cy="70" r="2" stroke="none" />
+          <circle cx="127.5" cy="70" r="2" stroke="none" />
+          <text stroke="none" font-weight="700" letter-spacing="1.6" style="font-stretch: 72%">
+            <textPath id="dieCity" href="#arcTop" startOffset="50%" text-anchor="middle" font-size="13">TOKYO</textPath>
+          </text>
+          <text stroke="none" font-weight="600" letter-spacing="1.3" style="font-stretch: 72%">
+            <textPath id="dieRegion" href="#arcBottom" startOffset="50%" text-anchor="middle" font-size="9.5">JAPAN</textPath>
+          </text>
+          <text id="dieDate" stroke="none" x="70" y="56" text-anchor="middle" font-size="10" font-weight="600"
+            letter-spacing="0.9" style="font-stretch: 75%; font-variant-numeric: tabular-nums">18 OCT 26</text>
+          <text id="dieTime" stroke="none" x="70" y="81" text-anchor="middle" font-size="25" font-weight="700"
+            style="font-stretch: 80%; font-variant-numeric: tabular-nums">19:42</text>
+          <text id="dieOffset" stroke="none" x="70" y="96" text-anchor="middle" font-size="9" font-weight="600"
+            letter-spacing="0.8" style="font-stretch: 75%; font-variant-numeric: tabular-nums">UTC+09:00</text>
+        </g></g>
+      </svg>
+
+      <div class="min-w-0 flex-1">
+        <svg class="pointer-events-none absolute right-0 top-[16px] h-[40px] w-[270px] text-ink" viewBox="0 0 270 40"
+          fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+          <defs>
+            <mask id="impressionLines" maskUnits="userSpaceOnUse" x="0" y="0" width="270" height="40">
+              <image href="../img/ink-lines.png" width="270" height="40" preserveAspectRatio="none" />
+            </mask>
+          </defs>
+          <g mask="url(#impressionLines)"><g filter="url(#bleed)" id="cancelLines">
+            <path d="M0 4 q8 -3.5 16 0 t16 0 t16 0 t16 0 t16 0 t16 0 t16 0 t16 0 t16 0 t16 0 t16 0 t16 0 t16 0 t16 0 t16 0 t16 0 t16 0" />
+            <path d="M0 12 q8 -3.5 16 0 t16 0 t16 0 t16 0 t16 0 t16 0 t16 0 t16 0 t16 0 t16 0 t16 0 t16 0 t16 0 t16 0 t16 0 t16 0 t16 0" />
+            <path d="M0 20 q8 -3.5 16 0 t16 0 t16 0 t16 0 t16 0 t16 0 t16 0 t16 0 t16 0 t16 0 t16 0 t16 0 t16 0 t16 0 t16 0 t16 0 t16 0" />
+            <path d="M0 28 q8 -3.5 16 0 t16 0 t16 0 t16 0 t16 0 t16 0 t16 0 t16 0 t16 0 t16 0 t16 0 t16 0 t16 0 t16 0 t16 0 t16 0 t16 0" />
+            <path d="M0 36 q8 -3.5 16 0 t16 0 t16 0 t16 0 t16 0 t16 0 t16 0 t16 0 t16 0 t16 0 t16 0 t16 0 t16 0 t16 0 t16 0 t16 0 t16 0" />
+          </g></g>
+        </svg>
+        <div class="pt-[53px]">
+          <p id="strikeLead" class="text-[12.5px] font-semibold text-ink2">Sites see you in</p>
+          <p id="strikePlace" class="truncate text-[28px] font-extrabold leading-[1.05] tracking-[-0.02em]"
+            style="font-stretch: 84%">Tokyo</p>
+          <p id="strikeMeta" class="numerals mt-1 truncate text-[12.5px] font-medium text-ink2">Japan · ja-JP</p>
+        </div>
+      </div>
+    </section>
+
+    <div class="scope-tabs mx-5" role="tablist" aria-label="Which sites this cover applies to">
+      <button id="scopeAll" role="tab" aria-selected="true" aria-controls="coverPanel">All sites</button>
+      <button id="scopeSite" role="tab" aria-selected="false" aria-controls="coverPanel" tabindex="-1">
+        <span id="scopeSiteName" class="block max-w-[210px] truncate">This site</span>
+      </button>
+    </div>
+
+    <div id="coverPanel" role="tabpanel" aria-labelledby="scopeAll">
+    <div id="siteEmpty" class="px-5 pt-3" hidden>
+      <p class="text-[13.5px] leading-[1.5] text-ink2"><strong id="siteEmptyName" class="font-semibold text-ink"></strong>
+        uses your All sites cover.</p>
+      <button id="addSiteRule" type="button" class="ink-button mt-3">Give it its own cover</button>
+    </div>
+
+    <form id="coverFields" class="flex flex-col gap-3 px-5 pt-3" autocomplete="off" onsubmit="return false">
+      <div>
+        <label for="configuration" class="field-label">Cover</label>
+        <div class="relative">
+          <select id="configuration" name="configuration" class="address-line">
+            <option value="browserDefault">Off (real location)</option>
+            <option value="ipAddress">Match my IP address</option>
+            <option value="custom">Custom</option>
+            <optgroup label="Places" id="locationsOptGroup"></optgroup>
+          </select>
+          <svg class="pointer-events-none absolute right-1 top-1/2 -translate-y-1/2 text-ink2" width="16" height="16"
+            viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
+            stroke-linejoin="round" aria-hidden="true">
+            <path d="M5.5 8l4.5 4.5L14.5 8" />
+          </svg>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-2 gap-x-5 gap-y-3">
+        <div>
+          <label for="timeZone" class="field-label">Time zone</label>
+          <input id="timeZone" type="text" name="timeZone" class="address-line" placeholder="Asia/Tokyo"
+            spellcheck="false" aria-describedby="fieldError">
+        </div>
+        <div>
+          <label for="locale" class="field-label">Locale</label>
+          <input id="locale" type="text" name="locale" class="address-line" placeholder="ja-JP" spellcheck="false"
+            aria-describedby="fieldError">
+        </div>
+        <div>
+          <label for="latitude" class="field-label">Latitude</label>
+          <input id="latitude" type="text" inputmode="decimal" name="latitude" class="address-line"
+            placeholder="35.6762" spellcheck="false" aria-describedby="fieldError">
+        </div>
+        <div>
+          <label for="longitude" class="field-label">Longitude</label>
+          <input id="longitude" type="text" inputmode="decimal" name="longitude" class="address-line"
+            placeholder="139.6503" spellcheck="false" aria-describedby="fieldError">
+        </div>
+      </div>
+      <p id="fieldError" class="-mt-1 text-[12.5px] font-semibold text-airmail" role="alert" hidden></p>
+      <p id="ipError" class="-mt-1 text-[12.5px] font-semibold text-airmail" role="alert" hidden>
+        Couldn’t reach GeoJS. <button id="ipRetry" type="button" class="underline">Try again</button>
+      </p>
+      <button id="removeSiteRule" type="button" class="link-button self-start" hidden>Remove this site’s cover</button>
+    </form>
+    </div>
+
+    <fieldset class="mx-5 mt-3 border-t border-rule pb-4 pt-3">
+      <legend class="sr-only">Mode, for all sites</legend>
+      <div class="flex items-center justify-between gap-4">
+        <div class="min-w-0">
+          <p class="text-[13.5px] font-bold" aria-hidden="true">Mode <span class="font-medium text-ink3">· all sites</span></p>
+          <p id="modeNote" class="text-[12.5px] text-ink2"></p>
+        </div>
+        <div class="halves shrink-0">
+          <label>
+            <input type="radio" name="mode" value="stealth" class="sr-only">
+            <span class="half-title">Stealth</span>
+          </label>
+          <label>
+            <input type="radio" name="mode" value="deep" class="sr-only">
+            <span class="half-title">Deep</span>
+          </label>
+        </div>
+      </div>
+      <p id="userScriptsHint" class="postal-label mt-3" hidden>
+        A page’s very first scripts can still see your real zone.
+        <button id="userScriptsLink" type="button">Allow User Scripts</button> to cover them too.
+      </p>
+    </fieldset>
+  </main>
+
+  <script src="../js/popup.js" type="module"></script>
+</body>
+
+</html>
