@@ -136,6 +136,12 @@
       text-transform: uppercase;
     }
 
+    /* A signal that disagrees; table cells use .differs, which adds its own label. */
+    .flag {
+      color: rgb(var(--red));
+      font-weight: 650;
+    }
+
     .pending {
       color: rgb(var(--ink-3));
     }
@@ -459,7 +465,16 @@
       return part === 'GMT' ? 'UTC+00:00' : part.replace('GMT', 'UTC')
     }
     const page = byId.page.value
-    const agrees = (tag) => tag.split(/[;,]/)[0].trim() === page.locale
+    // Compare by meaning, not spelling: Intl resolves 'nb-NO' to 'nb', and both mean nb-Latn-NO.
+    const expand = (tag) => {
+      try {
+        const { language, script, region } = new Intl.Locale(tag).maximize()
+        return `${language}-${script}-${region}`
+      } catch {
+        return tag
+      }
+    }
+    const agrees = (tag) => expand(tag.split(/[;,]/)[0].trim()) === expand(page.locale)
     // The local server echoes the header into the page; the static copy asks httpbin.org instead.
     const echoed = document.querySelector('meta[name="accept-language"]').content
     const acceptLanguage = echoed !== '%ACCEPT_LANGUAGE%'
@@ -468,17 +483,17 @@
     const dateOffset = formatOffset(page.offset)
     const native = Function.prototype.toString.call(Date.prototype.getHours)
     const signals = [
-      ['Date and Intl agree', intlOffset(page.zone) === dateOffset ? `<strong>Yes</strong>, both say ${dateOffset}` : `<strong class="differs">No</strong> Date says ${dateOffset}, Intl says ${intlOffset(page.zone)}`],
+      ['Date and Intl agree', intlOffset(page.zone) === dateOffset ? `<strong>Yes</strong>, both say ${dateOffset}` : `<strong class="flag">No</strong> Date says ${dateOffset}, Intl says ${intlOffset(page.zone)}`],
       ['Date as text', esc(new Date().toString())],
       ['Date, local format', esc(new Date().toLocaleString())],
       ['Number, local format', esc((1234567.891).toLocaleString())],
-      ['Date methods look native', native === 'function getHours() { [native code] }' ? '<strong>Yes</strong>' : `<strong class="differs">No</strong> ${esc(native.slice(0, 80))}`],
-      ['Browser language', `${agrees(navigator.language) ? '' : '<strong class="differs">Differs</strong> '}${esc(navigator.languages.join(', '))}`],
+      ['Date methods look native', native === 'function getHours() { [native code] }' ? '<strong>Yes</strong>' : `<strong class="flag">No</strong> ${esc(native.slice(0, 80))}`],
+      ['Browser language', `${agrees(navigator.language) ? '' : '<strong class="flag">Differs</strong> '}${esc(navigator.languages.join(', '))}`],
       ['Accept-Language header', '<span id="acceptLanguage">Checking…</span>'],
     ]
     document.getElementById('signals').innerHTML = signals.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('')
     acceptLanguage.then(
-      ([header, how]) => (document.getElementById('acceptLanguage').innerHTML = `${agrees(header) ? '' : '<strong class="differs">Differs</strong> '}${esc(header)}${how}`),
+      ([header, how]) => (document.getElementById('acceptLanguage').innerHTML = `${agrees(header) ? '' : '<strong class="flag">Differs</strong> '}${esc(header)}${how}`),
       () => (document.getElementById('acceptLanguage').textContent = 'Couldn’t reach httpbin.org to check'),
     )
 
