@@ -1,7 +1,6 @@
 /node_modules
 /build
 /alibi-*.zip
-/css
 /.impeccable/review
 /.impeccable/questions
 .DS_Store

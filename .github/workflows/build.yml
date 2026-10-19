@@ -22,6 +22,9 @@ jobs:
       - run: yarn install --frozen-lockfile
       - run: yarn test
       - run: yarn build
+      # css/style.css is committed so a clone or GitHub's "Source code" zip loads styled.
+      - name: Check the committed CSS is current
+        run: git diff --exit-code -- css/ || { echo "::error::css/style.css is stale; run yarn build:css and commit it"; exit 1; }
       # The unpacked extension, ready for "Load unpacked". GitHub wraps every download in a zip;
       # the store zip is a separate thing (yarn build:store) and isn't built here.
       - uses: actions/upload-artifact@v7
