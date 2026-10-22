@@ -25,6 +25,34 @@ export const languagesFor = (locale) => [...new Set([locale, locale.split('-')[0
 
 export const isActive = ({ timezone, locale, lat, lon }) => !!(timezone || locale || lat || lon)
 
+// "Match my IP address": where GeoJS places this connection, as a cover.
+// GeoJS: free, no key, HTTPS, so the lookup can't be read or altered on the way.
+export const ipCover = async () => {
+  const response = await fetch('https://get.geojs.io/v1/ip/geo.json')
+  if (!response.ok) throw new Error(`GeoJS answered ${response.status}`)
+  const ip = await response.json()
+  // A missing or unknown zone would break pages, so it fails the lookup instead.
+  if (!ip.timezone) throw new Error('GeoJS gave no time zone')
+  new Intl.DateTimeFormat('en-US', { timeZone: ip.timezone })
+  // The country's most likely language, from CLDR: JP -> ja-JP, CH -> de-CH
+  const { language, region } = new Intl.Locale(`und-${ip.country_code}`).maximize()
+  return { timezone: ip.timezone, locale: `${language}-${region}`, lat: Number(ip.latitude) || null, lon: Number(ip.longitude) || null }
+}
+
+const followingIp = (rule) => rule?.configuration === 'ipAddress'
+export const followsIp = ({ sites = {}, ...everywhere }) => [everywhere, ...Object.values(sites)].some(followingIp)
+
+// The storage changes that move every "Match my IP address" cover to `ip`. Empty when they're all
+// there already, so an unchanged connection writes nothing.
+export const followIp = ({ sites = {}, ...everywhere }, ip) => {
+  const stale = (rule) => followingIp(rule) && Object.keys(ip).some((key) => rule[key] !== ip[key])
+  const changes = stale(everywhere) ? { ...ip } : {}
+  if (Object.values(sites).some(stale)) {
+    changes.sites = Object.fromEntries(Object.entries(sites).map(([site, rule]) => [site, stale(rule) ? { ...rule, ...ip } : rule]))
+  }
+  return changes
+}
+
 // Store builds leave the permission out: the Web Store reserves userScripts for user-script managers.
 export const userScriptsPermitted = chrome.runtime.getManifest().permissions.includes('userScripts')
 

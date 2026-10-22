@@ -1,6 +1,6 @@
 import { detachDebugger } from './debugger.js'
 import locationsConfigurations from './locationsConfigurations.js'
-import { coverFor, siteKey, userScriptsAvailable, userScriptsPermitted } from './sites.js'
+import { coverFor, ipCover, siteKey, userScriptsAvailable, userScriptsPermitted } from './sites.js'
 
 const $ = (selector) => document.querySelector(selector)
 
@@ -46,19 +46,14 @@ Object.entries(locationsConfigurations).forEach(([key, location]) => {
   locationsOptGroup.appendChild(option)
 })
 
-// Only contacted when "Match my IP address" is chosen, so opening the popup leaks nothing.
-// GeoJS: free, no key, HTTPS, so the lookup can't be read or altered on the way.
+// Only asked when "Match my IP address" is chosen, so opening the popup leaks nothing.
+// From then on background.js keeps that cover following the connection.
 let ipRequest = null
-const fetchIpData = () =>
-  (ipRequest ??= fetch('https://get.geojs.io/v1/ip/geo.json')
-    .then((response) => {
-      if (!response.ok) throw new Error(`GeoJS answered ${response.status}`)
-      return response.json()
-    })
-    .catch((error) => {
-      ipRequest = null
-      throw error
-    }))
+const fetchIpCover = () =>
+  (ipRequest ??= ipCover().catch((error) => {
+    ipRequest = null
+    throw error
+  }))
 
 const isTimeZone = (value) => {
   try {
@@ -332,11 +327,9 @@ const handleConfigurationChange = async () => {
     // Nothing is saved until the lookup lands, so the strike keeps the cover that still applies.
     renderStrike({ lead: 'Looking up your IP address…', meta: 'Asking GeoJS' })
     try {
-      const ipData = await fetchIpData()
+      const ip = await fetchIpCover()
       if (configurationSelect.value !== 'ipAddress') return // the user moved on while we waited
-      // The country's most likely language, from CLDR: JP -> ja-JP, CH -> de-CH
-      const { language, region } = new Intl.Locale(`und-${ipData.country_code}`).maximize()
-      setInputs(ipData.timezone, `${language}-${region}`, Number(ipData.latitude), Number(ipData.longitude))
+      setInputs(ip.timezone, ip.locale, ip.lat, ip.lon)
     } catch {
       configurationSelect.value = (scope === 'site' ? siteRule() : stored)?.configuration || 'browserDefault'
       renderStrike()

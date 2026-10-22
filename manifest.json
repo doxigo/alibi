@@ -25,6 +25,7 @@
   },
   "permissions": [
     "storage",
+    "alarms",
     "webNavigation",
     "scripting",
     "userScripts",

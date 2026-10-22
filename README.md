@@ -49,7 +49,7 @@ A browser extension can only argue from inside the browser. A site's own workers
 | Your public IP and VPN exit, with alerts and a kill switch | | ✓ |
 | IPv6 and DNS leaks | | ✓ |
 
-Run both, set them to the same place, and every time zone on the [check page](https://doxigo.github.io/alibi/) agrees, including the ones Alibi can't reach. (A site's own workers still read the browser's locale; Alibi's Deep mode covers that.)
+Run both, with Alibi on **Match my IP address** so both follow your VPN exit, and every time zone on the [check page](https://doxigo.github.io/alibi/) agrees, including the ones Alibi can't reach. (A site's own workers still read the browser's locale; Alibi's Deep mode covers that.)
 
 ## Modes
 
@@ -69,7 +69,7 @@ The popup has two tabs. **All sites** holds your usual cover. The second tab is 
 
 ## IP Address
 
-Alibi does not change your IP address. Use a VPN or proxy for that.
+Alibi does not change your IP address. Use a VPN or proxy for that, then choose **Match my IP address**. The cover then follows your connection: while any cover uses it, Alibi asks [GeoJS](https://www.geojs.io/) where you appear to be once a minute, so switching VPN exits moves the cover within a minute. Pages already open pick up the new place when they reload.
 
 ## Permission Justification
 
@@ -84,6 +84,8 @@ Alibi does not change your IP address. Use a VPN or proxy for that.
 **webNavigation:** Detects new page loads so Alibi can apply the active mode.
 
 **storage:** Stores settings and preferences.
+
+**alarms:** Re-checks your IP address once a minute while a cover is set to Match my IP address.
 
 ## Development
 

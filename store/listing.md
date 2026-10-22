@@ -30,7 +30,7 @@ Upload `alibi-store.zip` from `yarn build:store`. That build leaves out the `use
 > • Stealth (default): rewrites what each page reads. Chrome shows no banner.
 > • Deep: works below the page through Chrome's debugger, so it's harder to detect. Chrome shows a "started debugging this browser" banner while it's on.
 >
-> Alibi doesn't change your IP address; use a VPN or proxy for that. It has no analytics or tracking and keeps your settings in your browser. It only contacts a server (GeoJS, over HTTPS) when you choose "Match my IP address".
+> Alibi doesn't change your IP address; use a VPN or proxy for that. It has no analytics or tracking and keeps your settings in your browser. It only contacts a server (GeoJS, over HTTPS) for "Match my IP address": when you choose it, then once a minute so the cover follows your VPN.
 >
 > Free and open source (GPL-3.0), based on Cloaq.
 
@@ -62,6 +62,6 @@ To change an image, edit its page in `src/` and re-render it at the size above. 
 
 **Remote code:** No. All code ships in the package.
 
-**Data usage:** Location (IP-based): only when the user chooses "Match my IP address", the extension requests the connection's approximate location from GeoJS and stores the result locally as the user's settings. It is not sold, not used for anything unrelated to this purpose, and not used for creditworthiness.
+**Data usage:** Location (IP-based): only while the user has chosen "Match my IP address" (once when chosen, then once a minute), the extension requests the connection's approximate location from GeoJS and stores the result locally as the user's settings. It is not sold, not used for anything unrelated to this purpose, and not used for creditworthiness.
 
 **Privacy policy URL:** https://github.com/doxigo/alibi/blob/main/PRIVACY.md

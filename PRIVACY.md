@@ -14,9 +14,9 @@ Uninstalling Alibi deletes them.
 
 ## The one network request
 
-Alibi contacts a server only when you choose **Match my IP address**. It then asks [GeoJS](https://www.geojs.io/) (`https://get.geojs.io/v1/ip/geo.json`) where your connection appears to come from. Like any server, GeoJS sees your IP address when it answers. Alibi uses the answer (time zone, country, coordinates) only to fill in your settings, and stores it in the same local storage. GeoJS's own policy covers what it does with requests.
+Alibi contacts a server only when you choose **Match my IP address**, and then once a minute for as long as any cover stays on that option, so the cover follows your VPN when its exit changes. Each time it asks [GeoJS](https://www.geojs.io/) (`https://get.geojs.io/v1/ip/geo.json`) where your connection appears to come from. Like any server, GeoJS sees your IP address when it answers. Alibi uses the answer (time zone, country, coordinates) only to fill in your settings, and stores it in the same local storage. GeoJS's own policy covers what it does with requests.
 
-Opening the popup, changing places and browsing make no requests of Alibi's own.
+With no cover on Match my IP address, opening the popup, changing places and browsing make no requests of Alibi's own.
 
 ## What Alibi doesn't do
 
@@ -31,6 +31,7 @@ Opening the popup, changing places and browsing make no requests of Alibi's own.
 - **debugger:** only for Deep mode, which you turn on yourself. Chrome then shows a "started debugging this browser" banner.
 - **webNavigation:** to apply the right cover as pages load.
 - **storage:** for your settings.
+- **alarms:** to re-check your IP address once a minute while a cover is on Match my IP address.
 
 ## Contact
 

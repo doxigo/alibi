@@ -53,3 +53,17 @@ execFileSync('node', ['--no-warnings', '--input-type=module', '-e', `
   })
 `], { stdio: 'inherit' })
 console.log('ok locale + geolocation')
+
+// "Match my IP address" covers move with the connection; every other cover stays put.
+globalThis.chrome = { runtime: { getManifest: () => ({ permissions: [] }) } }
+const { followIp, followsIp } = await import('../js/sites.js')
+const stockholm = { timezone: 'Europe/Stockholm', locale: 'sv-SE', lat: 59.33, lon: 18.07 }
+const oslo = { configuration: 'ipAddress', timezone: 'Europe/Oslo', locale: 'nb-NO', lat: 59.91, lon: 10.75 }
+const tokyo = { configuration: 'tokyo', timezone: 'Asia/Tokyo', locale: 'ja-JP' }
+const stored = { ...oslo, useDebuggerApi: false, sites: { 'a.com': oslo, 'b.com': tokyo } }
+assert.deepEqual(followIp(stored, stockholm), { ...stockholm, sites: { 'a.com': { ...oslo, ...stockholm }, 'b.com': tokyo } })
+assert.deepEqual(followIp({ ...stored, ...stockholm, sites: { 'b.com': tokyo } }, stockholm), {})
+assert.deepEqual(followIp({ ...tokyo, sites: { 'a.com': oslo } }, stockholm), { sites: { 'a.com': { ...oslo, ...stockholm } } })
+assert.equal(followsIp({ ...tokyo, sites: { 'b.com': tokyo } }), false)
+assert.equal(followsIp({ sites: { 'a.com': oslo } }), true)
+console.log('ok match my IP')

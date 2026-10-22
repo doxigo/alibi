@@ -1,5 +1,5 @@
 import { applyDebugger, startChild } from './debugger.js'
-import { coverFor, isActive, languagesFor, siteKey, userScriptsAvailable } from './sites.js'
+import { coverFor, followIp, followsIp, ipCover, isActive, languagesFor, siteKey, userScriptsAvailable } from './sites.js'
 import stealth from './stealth.js'
 
 const KEYS = ['useDebuggerApi', 'timezone', 'locale', 'lat', 'lon', 'sites']
@@ -72,10 +72,33 @@ const syncHeaderRules = async () => {
 let headerRulesReady = syncHeaderRules().catch(console.error)
 const syncHeaders = () => (headerRulesReady = headerRulesReady.then(syncHeaderRules).catch(console.error))
 
+// "Match my IP address" follows the connection: while any cover uses it, GeoJS is asked again every
+// minute, so a new VPN exit moves the cover within a minute. Pages pick it up when they next load.
+// ponytail: polled; Chrome has no network-change event that wakes the worker.
+const IP_ALARM = 'matchIp'
+const syncIpAlarm = async () => {
+  const following = followsIp(await chrome.storage.local.get(['configuration', 'sites']))
+  if (!following) await chrome.alarms.clear(IP_ALARM)
+  else if (!(await chrome.alarms.get(IP_ALARM))) await chrome.alarms.create(IP_ALARM, { periodInMinutes: 1 })
+  return following
+}
+const refreshIpCovers = async () => {
+  if (!(await syncIpAlarm())) return
+  const ip = await ipCover().catch(() => null) // offline, or GeoJS down: keep the last place
+  if (!ip) return
+  // Read after the lookup, so a change made in the popup meanwhile isn't overwritten.
+  const changes = followIp(await chrome.storage.local.get(['configuration', 'timezone', 'locale', 'lat', 'lon', 'sites']), ip)
+  if (Object.keys(changes).length) await chrome.storage.local.set(changes)
+}
+syncIpAlarm() // alarms can be lost on update or restart
+chrome.alarms.onAlarm.addListener(({ name }) => name === IP_ALARM && refreshIpCovers())
+chrome.runtime.onStartup.addListener(refreshIpCovers) // Chrome may have started on another network
+
 chrome.storage.onChanged.addListener(() => {
   settings = chrome.storage.local.get(KEYS)
   syncUserScript()
   syncHeaders()
+  syncIpAlarm()
 })
 
 chrome.runtime.onInstalled.addListener((details) => {
