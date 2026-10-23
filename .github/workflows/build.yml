@@ -11,8 +11,12 @@ permissions:
 
 jobs:
   extension:
-    name: Extension
-    runs-on: ubuntu-latest
+    name: Extension (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -21,13 +25,22 @@ jobs:
           cache: yarn
       - run: yarn install --frozen-lockfile
       - run: yarn test
+      - run: yarn build:store
+      - name: Check the store zip opens, with manifest.json at its root
+        shell: bash
+        run: |
+          py=python3; [ "$RUNNER_OS" = Windows ] && py=python
+          $py -c "import sys, zipfile; z = zipfile.ZipFile('alibi-store.zip'); sys.exit(z.testzip() is not None or 'manifest.json' not in z.namelist() or any(chr(92) in i.orig_filename for i in z.infolist()))"
       - run: yarn build
       # css/style.css is committed so a clone or GitHub's "Source code" zip loads styled.
+      # Linux only: a Windows checkout turns line endings into CRLF.
       - name: Check the committed CSS is current
+        if: runner.os == 'Linux'
         run: git diff --exit-code -- css/ || { echo "::error::css/style.css is stale; run yarn build:css and commit it"; exit 1; }
       # The unpacked extension, ready for "Load unpacked". GitHub wraps every download in a zip;
-      # the store zip is a separate thing (yarn build:store) and isn't built here.
+      # the store zip is a separate thing (yarn build:store) and isn't uploaded here.
       - uses: actions/upload-artifact@v7
+        if: runner.os == 'Linux'
         with:
           name: alibi-extension
           path: build/
