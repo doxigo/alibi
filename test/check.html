@@ -324,9 +324,12 @@
       <tbody id="sources"></tbody>
     </table>
     <p class="os-tip" id="osTip" hidden>
-      <strong>These rows read the time zone from macOS itself,</strong> which still knows where you are.
-      <a href="https://github.com/doxigo/whereabouts">Whereabouts</a> moves your Mac to your VPN’s time zone while it’s
-      connected and keeps your real time in the menu bar, so these rows match too.
+      <strong>These rows read the time zone from <span class="mac-only">macOS</span><span class="not-mac">your
+        operating system</span> itself,</strong> which still knows where you are.
+      <span class="mac-only"><a href="https://github.com/doxigo/whereabouts">Whereabouts</a> moves your Mac to your VPN’s
+        time zone while it’s connected and keeps your real time in the menu bar, so these rows match too.</span>
+      <span class="not-mac">Set your computer’s time zone to your VPN’s and these rows follow it. On Windows they can
+        still name another city with the same offset, since one Windows zone covers several.</span>
     </p>
 
     <h2>Location</h2>
@@ -359,6 +362,10 @@
     const local = ['localhost', '127.0.0.1'].includes(location.hostname)
     for (const el of document.querySelectorAll('.local-only')) el.hidden = !local
     for (const el of document.querySelectorAll('.hosted-only')) el.hidden = local
+    // Whereabouts is a Mac app. Elsewhere the only fix for the OS-level rows is the system's own time zone.
+    const mac = /mac/i.test(navigator.userAgentData?.platform || navigator.platform)
+    for (const el of document.querySelectorAll('.mac-only')) el.hidden = !mac
+    for (const el of document.querySelectorAll('.not-mac')) el.hidden = mac
     const otherHost = location.hostname === '127.0.0.1' ? 'localhost' : '127.0.0.1'
     const otherOrigin = `${location.protocol}//${otherHost}${location.port ? ':' + location.port : ''}`
     document.getElementById('host').textContent = location.host
@@ -460,7 +467,7 @@
 
       const answered = sources.filter((s) => s.value)
       const leaks = answered.filter((s) => s.value.zone !== reference.zone || s.value.offset !== reference.offset || s.value.locale !== reference.locale || s.earlyZone || (s.value.loads && s.value.loads !== 'ok'))
-      // Only macOS can fix the time zone of a site's own workers and of instant first scripts.
+      // Only the OS can fix the time zone of a site's own workers and of instant first scripts.
       document.getElementById('osTip').hidden = !leaks.some((s) => ['early', 'fileWorker', 'moduleWorker'].includes(s.id) && s.value.zone !== reference.zone)
       const verdict = document.getElementById('verdict')
       const detail = document.getElementById('verdictDetail')
