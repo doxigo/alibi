@@ -69,7 +69,7 @@ The popup has two tabs. **All sites** holds your usual cover. The second tab is 
 
 ## IP Address
 
-Alibi does not change your IP address. Use a VPN or proxy for that, then choose **Match my IP address**. The cover then follows your connection: while any cover uses it, Alibi asks [GeoJS](https://www.geojs.io/) where you appear to be once a minute, so switching VPN exits moves the cover within a minute. Pages already open pick up the new place when they reload.
+Alibi does not change your IP address. Use a VPN or proxy for that, then choose **Match my IP address**. The cover then follows your connection: while any cover uses it, Alibi asks [GeoJS](https://www.geojs.io/) where you appear to be once a minute, so switching VPN exits moves the cover within a minute. Pages already open pick up the new place when they reload. With [Whereabouts](https://github.com/doxigo/whereabouts) moving the Mac's time zone to the exit, the time zone of open pages follows without a reload: while the Mac's zone already matches the IP, Alibi leaves the zone to Chrome, which passes the Mac's zone changes into pages that are already open. Their language, locale and location still change on reload.
 
 ## Permission Justification
 

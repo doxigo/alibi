@@ -2,14 +2,14 @@ import { applyDebugger, startChild } from './debugger.js'
 import { coverFor, followIp, followsIp, ipCover, isActive, languagesFor, siteKey, userScriptsAvailable } from './sites.js'
 import stealth from './stealth.js'
 
-const KEYS = ['useDebuggerApi', 'timezone', 'locale', 'lat', 'lon', 'sites']
+const KEYS = ['useDebuggerApi', 'configuration', 'timezone', 'locale', 'lat', 'lon', 'sites']
 // Kept as a promise so a warm worker answers instantly and a cold one still waits for storage.
 let settings = chrome.storage.local.get(KEYS)
 
 const stealthCover = (settings, url) => {
   if (settings.useDebuggerApi) return null
-  const { timezone, locale, lat, lon } = coverFor(siteKey(url) ?? '', settings)
-  return isActive({ timezone, locale, lat, lon }) ? { timezone, locale, lat, lon } : null
+  const { configuration, timezone, locale, lat, lon } = coverFor(siteKey(url) ?? '', settings)
+  return isActive({ timezone, locale, lat, lon }) ? { configuration, timezone, locale, lat, lon } : null
 }
 
 // Bake every cover into one user script so Chrome runs it at document_start, before any page script.
@@ -73,7 +73,8 @@ let headerRulesReady = syncHeaderRules().catch(console.error)
 const syncHeaders = () => (headerRulesReady = headerRulesReady.then(syncHeaderRules).catch(console.error))
 
 // "Match my IP address" follows the connection: while any cover uses it, GeoJS is asked again every
-// minute, so a new VPN exit moves the cover within a minute. Pages pick it up when they next load.
+// minute, so a new VPN exit moves the cover within a minute. Pages pick it up when they next load,
+// except a time zone that Whereabouts moves on the Mac, which reaches open pages live (see stealth.js).
 // ponytail: polled; Chrome has no network-change event that wakes the worker.
 const IP_ALARM = 'matchIp'
 const syncIpAlarm = async () => {
@@ -114,7 +115,10 @@ chrome.runtime.onInstalled.addListener((details) => {
 // Accurate, but Chrome shows the "started debugging" banner while attached.
 const deepCover = async (url) => {
   const current = await settings
-  return current.useDebuggerApi ? coverFor(siteKey(url ?? '') ?? '', current) : null
+  if (!current.useDebuggerApi) return null
+  const cover = coverFor(siteKey(url ?? '') ?? '', current)
+  // As in Stealth: an IP cover on the Mac's own zone leaves the zone live.
+  return followsIp(cover) && cover.timezone === Intl.DateTimeFormat().resolvedOptions().timeZone ? { ...cover, timezone: null } : cover
 }
 const aimTab = async (tabId, url, replacing) => {
   const cover = await deepCover(url)

@@ -54,6 +54,20 @@ execFileSync('node', ['--no-warnings', '--input-type=module', '-e', `
 `], { stdio: 'inherit' })
 console.log('ok locale + geolocation')
 
+// An IP cover on the Mac's own zone leaves Date native, so a system zone change still reaches the page.
+// A fixed cover on the same zone still patches, so it holds if the Mac's zone moves later.
+execFileSync('node', ['--no-warnings', '--input-type=module', '-e', `
+  import assert from 'node:assert/strict'
+  const { default: s } = await import(${JSON.stringify(new URL('../js/stealth.js', import.meta.url).href)})
+  const native = Date
+  s({ configuration: 'ipAddress', timezone: 'Europe/Oslo', locale: 'nb-NO' })
+  assert.equal(Date, native)
+  assert.equal(navigator.language, 'nb-NO')
+  s({ configuration: 'oslo', timezone: 'Europe/Oslo' })
+  assert.notEqual(Date, native)
+`], { stdio: 'inherit', env: { ...process.env, TZ: 'Europe/Oslo' } })
+console.log('ok IP cover leaves a matching zone live')
+
 // "Match my IP address" covers move with the connection; every other cover stays put.
 globalThis.chrome = { runtime: { getManifest: () => ({ permissions: [] }) } }
 const { followIp, followsIp } = await import('../js/sites.js')
