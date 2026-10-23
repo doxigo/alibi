@@ -70,7 +70,7 @@ console.log('ok IP cover leaves a matching zone live')
 
 // "Match my IP address" covers move with the connection; every other cover stays put.
 globalThis.chrome = { runtime: { getManifest: () => ({ permissions: [] }) } }
-const { followIp, followsIp } = await import('../js/sites.js')
+const { checkedCover, followIp, followsIp } = await import('../js/sites.js')
 const stockholm = { timezone: 'Europe/Stockholm', locale: 'sv-SE', lat: 59.33, lon: 18.07 }
 const oslo = { configuration: 'ipAddress', timezone: 'Europe/Oslo', locale: 'nb-NO', lat: 59.91, lon: 10.75 }
 const tokyo = { configuration: 'tokyo', timezone: 'Asia/Tokyo', locale: 'ja-JP' }
@@ -80,4 +80,8 @@ assert.deepEqual(followIp({ ...stored, ...stockholm, sites: { 'b.com': tokyo } }
 assert.deepEqual(followIp({ ...tokyo, sites: { 'a.com': oslo } }, stockholm), { sites: { 'a.com': { ...oslo, ...stockholm } } })
 assert.equal(followsIp({ ...tokyo, sites: { 'b.com': tokyo } }), false)
 assert.equal(followsIp({ sites: { 'a.com': oslo } }), true)
+// Whereabouts leaves out coordinates it doesn't have; they must still clear the old ones.
+assert.deepEqual(checkedCover({ timezone: 'Europe/Stockholm', locale: 'sv-SE' }), { timezone: 'Europe/Stockholm', locale: 'sv-SE', lat: null, lon: null })
+assert.throws(() => checkedCover({ timezone: 'Mars/Olympus', locale: 'sv-SE' }))
+assert.throws(() => checkedCover({ locale: 'sv-SE' }))
 console.log('ok match my IP')

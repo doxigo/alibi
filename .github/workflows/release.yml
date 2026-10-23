@@ -43,7 +43,7 @@ jobs:
         run: |
           gh release create "$GITHUB_REF_NAME" \
             "alibi-$GITHUB_REF_NAME.zip#Alibi $GITHUB_REF_NAME (unzip, then Load unpacked)" \
-            "alibi-$GITHUB_REF_NAME-chrome-web-store.zip#Chrome Web Store upload (no userScripts permission)" \
+            "alibi-$GITHUB_REF_NAME-chrome-web-store.zip#Chrome Web Store upload (no userScripts or nativeMessaging permission)" \
             --title "Alibi $GITHUB_REF_NAME" \
             --notes-from-tag \
             --verify-tag

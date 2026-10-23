@@ -16,6 +16,8 @@ Uninstalling Alibi deletes them.
 
 Alibi contacts a server only when you choose **Match my IP address**, and then once a minute for as long as any cover stays on that option, so the cover follows your VPN when its exit changes. Each time it asks [GeoJS](https://www.geojs.io/) (`https://get.geojs.io/v1/ip/geo.json`) where your connection appears to come from. Like any server, GeoJS sees your IP address when it answers. Alibi uses the answer (time zone, country, coordinates) only to fill in your settings, and stores it in the same local storage. GeoJS's own policy covers what it does with requests.
 
+If [Whereabouts](https://github.com/doxigo/whereabouts), the companion Mac app, is running, Alibi asks it instead of GeoJS, over Chrome's native messaging, which stays on your Mac. Whereabouts tells Alibi the time zone, locale and coordinates of your VPN exit each time the exit changes. Alibi sends it nothing. The Chrome Web Store build doesn't do this.
+
 With no cover on Match my IP address, opening the popup, changing places and browsing make no requests of Alibi's own.
 
 ## What Alibi doesn't do
@@ -32,6 +34,7 @@ With no cover on Match my IP address, opening the popup, changing places and bro
 - **webNavigation:** to apply the right cover as pages load.
 - **storage:** for your settings.
 - **alarms:** to re-check your IP address once a minute while a cover is on Match my IP address.
+- **nativeMessaging:** to hear from Whereabouts about a new VPN exit while a cover is on Match my IP address. Not in the Chrome Web Store build.
 
 ## Contact
 

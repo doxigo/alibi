@@ -6,7 +6,7 @@
   },
   "scripts": {
     "build": "rm -rf build && mkdir build && yarn build:css && cp -r html css img fonts js _locales manifest.json build/ && rm -rf build/img/src",
-    "build:store": "yarn build && node -e \"const f='build/manifest.json',m=require('./'+f);m.permissions=m.permissions.filter(p=>p!=='userScripts');require('fs').writeFileSync(f,JSON.stringify(m,null,2))\" && rm -f alibi-store.zip && cd build && zip -qr ../alibi-store.zip .",
+    "build:store": "yarn build && node -e \"const f='build/manifest.json',m=require('./'+f);m.permissions=m.permissions.filter(p=>!['userScripts','nativeMessaging'].includes(p));delete m.key;require('fs').writeFileSync(f,JSON.stringify(m,null,2))\" && rm -f alibi-store.zip && cd build && zip -qr ../alibi-store.zip .",
     "test": "node --no-warnings test/stealth.test.mjs",
     "testpage": "yarn build:css && node test/serve.mjs",
     "build:css": "tailwindcss -i ./tailwind.css -o ./css/style.css --minify",

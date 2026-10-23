@@ -1,5 +1,5 @@
 import { applyDebugger, startChild } from './debugger.js'
-import { coverFor, followIp, followsIp, ipCover, isActive, languagesFor, siteKey, userScriptsAvailable } from './sites.js'
+import { checkedCover, coverFor, followIp, followsIp, ipCover, isActive, languagesFor, siteKey, userScriptsAvailable } from './sites.js'
 import stealth from './stealth.js'
 
 const KEYS = ['useDebuggerApi', 'configuration', 'timezone', 'locale', 'lat', 'lon', 'sites']
@@ -72,24 +72,51 @@ const syncHeaderRules = async () => {
 let headerRulesReady = syncHeaderRules().catch(console.error)
 const syncHeaders = () => (headerRulesReady = headerRulesReady.then(syncHeaderRules).catch(console.error))
 
-// "Match my IP address" follows the connection: while any cover uses it, GeoJS is asked again every
-// minute, so a new VPN exit moves the cover within a minute. Pages pick it up when they next load,
-// except a time zone that Whereabouts moves on the Mac, which reaches open pages live (see stealth.js).
-// ponytail: polled; Chrome has no network-change event that wakes the worker.
+// "Match my IP address" follows the connection. While any cover uses it, Alibi keeps a native port
+// open to Whereabouts, the companion Mac app, which reports each new VPN exit the moment it sees one.
+// The open port also keeps this worker alive. Without Whereabouts (not installed, not running, or a
+// store build without the permission) GeoJS is asked again every minute instead, so a new exit
+// moves the cover within a minute. Pages pick it up when they next load, except a time zone that
+// Whereabouts moves on the Mac, which reaches open pages live (see stealth.js).
 const IP_ALARM = 'matchIp'
+const WHEREABOUTS = 'com.doxigo.whereabouts'
+let port = null
+let whereaboutsLive = false // Whereabouts has reported over `port`, so GeoJS stands down
+const applyIp = async (ip) => {
+  // Read after the lookup, so a change made in the popup meanwhile isn't overwritten.
+  const changes = followIp(await chrome.storage.local.get(['configuration', 'timezone', 'locale', 'lat', 'lon', 'sites']), ip)
+  if (Object.keys(changes).length) await chrome.storage.local.set(changes)
+}
+const connectWhereabouts = () => {
+  if (port || !chrome.runtime.connectNative) return
+  port = chrome.runtime.connectNative(WHEREABOUTS)
+  port.onMessage.addListener((message) => {
+    const ip = checkedCover(message) // a malformed message throws and leaves the cover alone
+    whereaboutsLive = true
+    applyIp(ip)
+  })
+  port.onDisconnect.addListener(() => {
+    void chrome.runtime.lastError // not installed, or the app quit: the alarm takes over and retries
+    port = null
+    whereaboutsLive = false
+  })
+}
 const syncIpAlarm = async () => {
   const following = followsIp(await chrome.storage.local.get(['configuration', 'sites']))
+  if (following) connectWhereabouts()
+  else if (port) {
+    port.disconnect() // fires no onDisconnect on this side
+    port = null
+    whereaboutsLive = false
+  }
   if (!following) await chrome.alarms.clear(IP_ALARM)
   else if (!(await chrome.alarms.get(IP_ALARM))) await chrome.alarms.create(IP_ALARM, { periodInMinutes: 1 })
   return following
 }
 const refreshIpCovers = async () => {
-  if (!(await syncIpAlarm())) return
+  if (!(await syncIpAlarm()) || whereaboutsLive) return
   const ip = await ipCover().catch(() => null) // offline, or GeoJS down: keep the last place
-  if (!ip) return
-  // Read after the lookup, so a change made in the popup meanwhile isn't overwritten.
-  const changes = followIp(await chrome.storage.local.get(['configuration', 'timezone', 'locale', 'lat', 'lon', 'sites']), ip)
-  if (Object.keys(changes).length) await chrome.storage.local.set(changes)
+  if (ip && !whereaboutsLive) await applyIp(ip) // Whereabouts may have answered meanwhile
 }
 syncIpAlarm() // alarms can be lost on update or restart
 chrome.alarms.onAlarm.addListener(({ name }) => name === IP_ALARM && refreshIpCovers())

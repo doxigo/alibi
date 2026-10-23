@@ -19,6 +19,8 @@ Alibi is a fork of [Cloaq](https://github.com/www1z4rd/cloaq) by www1z4rd and is
 
 To update, unzip the new release over the same folder and click the reload icon on Alibi's card.
 
+Alibi's ID is the same wherever you load it from (`dhlpjjenplighmpbogjpmljbahbnjpfa`, pinned by the `key` in `manifest.json`), so Whereabouts can tell it apart from other extensions. Versions before the pinned ID got an ID from their folder. If you're updating from one of those, reloading isn't enough: remove the old card, then click **Load unpacked** again. Chrome sees a new extension, so your covers start fresh.
+
 ## Screenshots
 
 | Every site | One site, its own cover | Deep mode, dark theme |
@@ -49,7 +51,7 @@ A browser extension can only argue from inside the browser. A site's own workers
 | Your public IP and VPN exit, with alerts and a kill switch | | ✓ |
 | IPv6 and DNS leaks | | ✓ |
 
-Run both, with Alibi on **Match my IP address** so both follow your VPN exit, and every time zone on the [check page](https://doxigo.github.io/alibi/) agrees, including the ones Alibi can't reach. (A site's own workers still read the browser's locale; Alibi's Deep mode covers that.)
+Run both, with Alibi on **Match my IP address** so both follow your VPN exit (Whereabouts tells Alibi the moment the exit changes), and every time zone on the [check page](https://doxigo.github.io/alibi/) agrees, including the ones Alibi can't reach. (A site's own workers still read the browser's locale; Alibi's Deep mode covers that.)
 
 ## Modes
 
@@ -69,7 +71,17 @@ The popup has two tabs. **All sites** holds your usual cover. The second tab is 
 
 ## IP Address
 
-Alibi does not change your IP address. Use a VPN or proxy for that, then choose **Match my IP address**. The cover then follows your connection: while any cover uses it, Alibi asks [GeoJS](https://www.geojs.io/) where you appear to be once a minute, so switching VPN exits moves the cover within a minute. Pages already open pick up the new place when they reload. With [Whereabouts](https://github.com/doxigo/whereabouts) moving the Mac's time zone to the exit, the time zone of open pages follows without a reload: while the Mac's zone already matches the IP, Alibi leaves the zone to Chrome, which passes the Mac's zone changes into pages that are already open. Their language, locale and location still change on reload.
+Alibi does not change your IP address. Use a VPN or proxy for that, then choose **Match my IP address**. The cover then follows your connection. While any cover uses it, Alibi asks [GeoJS](https://www.geojs.io/) where you appear to be once a minute, so switching VPN exits moves the cover within a minute. Pages already open pick up the new place when they reload.
+
+With [Whereabouts](https://github.com/doxigo/whereabouts) running, the cover moves as soon as Whereabouts sees the new exit, and GeoJS isn't asked at all. To set it up:
+
+1. Install Whereabouts 1.2.0 or later and open it once. Each time it starts, it registers itself with Chrome and Brave as a native messaging host (`com.doxigo.whereabouts`) that only Alibi may use.
+2. Load this version of Alibi or a later one (see the note on the pinned ID under [Install](#install)).
+3. Choose **Match my IP address** for all sites or for one site.
+
+Nothing else is needed. If Whereabouts quits or isn't installed, Alibi goes back to asking GeoJS once a minute, and picks Whereabouts up again within a minute of it starting. The Chrome Web Store build leaves this out: it has a different ID and no `nativeMessaging` permission.
+
+When Whereabouts also moves the Mac's time zone to the exit, open pages follow the new time zone without a reload: while the Mac's zone already matches the IP, Alibi leaves the zone to Chrome, which passes the Mac's zone changes into pages that are already open. Their language, locale and location still change on reload.
 
 ## Permission Justification
 
@@ -87,6 +99,8 @@ Alibi does not change your IP address. Use a VPN or proxy for that, then choose 
 
 **alarms:** Re-checks your IP address once a minute while a cover is set to Match my IP address.
 
+**nativeMessaging:** While a cover is set to Match my IP address, Alibi listens to [Whereabouts](https://github.com/doxigo/whereabouts), the companion Mac app, so the cover moves the moment your VPN exit does. Alibi only receives the exit's time zone, locale and coordinates, and sends nothing. The store build leaves this permission out.
+
 ## Development
 
 Alibi is built using JavaScript and Tailwind CSS.
@@ -94,7 +108,7 @@ Alibi is built using JavaScript and Tailwind CSS.
 ```
 yarn
 yarn build        # outputs to /build
-yarn build:store  # Chrome Web Store zip: same build without the userScripts permission
+yarn build:store  # Chrome Web Store zip: same build without the userScripts and nativeMessaging permissions or the pinned key
 yarn test         # checks stealth time zone math against real TZ processes
 yarn testpage     # the check page at http://localhost:8642/, with a second site and delay/policy options
 ```

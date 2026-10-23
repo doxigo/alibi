@@ -31,12 +31,17 @@ export const ipCover = async () => {
   const response = await fetch('https://get.geojs.io/v1/ip/geo.json')
   if (!response.ok) throw new Error(`GeoJS answered ${response.status}`)
   const ip = await response.json()
-  // A missing or unknown zone would break pages, so it fails the lookup instead.
-  if (!ip.timezone) throw new Error('GeoJS gave no time zone')
-  new Intl.DateTimeFormat('en-US', { timeZone: ip.timezone })
   // The country's most likely language, from CLDR: JP -> ja-JP, CH -> de-CH
   const { language, region } = new Intl.Locale(`und-${ip.country_code}`).maximize()
-  return { timezone: ip.timezone, locale: `${language}-${region}`, lat: Number(ip.latitude) || null, lon: Number(ip.longitude) || null }
+  return checkedCover({ timezone: ip.timezone, locale: `${language}-${region}`, lat: ip.latitude, lon: ip.longitude })
+}
+
+// A place from outside Alibi (GeoJS, Whereabouts) as a cover. A missing or unknown zone or locale
+// would break pages, so it throws instead.
+export const checkedCover = ({ timezone, locale, lat, lon }) => {
+  if (typeof timezone !== 'string') throw new Error('No time zone')
+  new Intl.DateTimeFormat('en-US', { timeZone: timezone })
+  return { timezone, locale: new Intl.Locale(locale).toString(), lat: Number(lat) || null, lon: Number(lon) || null }
 }
 
 const followingIp = (rule) => rule?.configuration === 'ipAddress'
