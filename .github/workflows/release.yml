@@ -18,6 +18,9 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0 # the annotated tag object carries the release notes
+          # This job can write to the repository and also runs go and yarn: keep the token out of
+          # .git/config, where they could read it. gh gets it from GH_TOKEN, only to publish.
+          persist-credentials: false
       - uses: actions/setup-node@v7
         with:
           node-version: 22
