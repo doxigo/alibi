@@ -46,6 +46,40 @@ jobs:
           path: build/
           if-no-files-found: error
 
+  companion:
+    name: Companion (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: companion
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: stable
+          cache-dependency-path: companion/go.sum
+      - run: go vet ./...
+      - run: go test ./...
+      # The race detector needs a C compiler, which only the Linux and macOS runners are sure to have.
+      - if: runner.os != 'Windows'
+        run: go test -race ./...
+      - name: Check formatting
+        if: runner.os == 'Linux'
+        run: test -z "$(gofmt -l .)" || { gofmt -l .; echo "::error::run gofmt -w on these files"; exit 1; }
+      # The Windows and Linux programs, cross-compiled once.
+      - if: runner.os == 'Linux'
+        run: node ../scripts/build-companion.mjs
+      - uses: actions/upload-artifact@v7
+        if: runner.os == 'Linux'
+        with:
+          name: alibi-companion
+          path: companion/dist/
+          if-no-files-found: error
+
   check-page:
     name: Check page
     if: github.event_name != 'pull_request'
