@@ -412,6 +412,7 @@ func agentCommand(sys system, options []string, stderr io.Writer) error {
 			}
 		},
 	}}
+	tray.later = worker(ctx, &running)
 	tray.onTimeChange = follower.reassert
 	tray.onSyncChange = follower.reassert
 	tray.onRelease = follower.release
