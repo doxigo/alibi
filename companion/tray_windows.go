@@ -26,6 +26,7 @@ const (
 const (
 	cmdTitle = 1 + iota
 	cmdSync
+	cmdFollowAlibi
 	cmdAlerts
 	cmdSound
 	cmdEdge
@@ -330,27 +331,26 @@ func (t *trayApp) statusLines(s snapshot) []string {
 			lines = append(lines, "⚠  "+p)
 		}
 	}
-	following := s.wish == nil || s.wish.Configuration == "ipAddress"
+	// A place Alibi has for all sites, which Windows is following.
+	held := s.settings.FollowAlibi && s.wish != nil && s.wish.Configuration != "browserDefault" &&
+		s.wish.Configuration != "ipAddress" && s.wish.Timezone != ""
 	switch {
 	case s.reads == "":
 	case s.system != "" && s.system == s.reads:
-		switch {
-		case following:
-			lines = append(lines, "✓  Windows on your VPN's time zone: "+s.reads)
-		case s.wish.Timezone == "":
-			lines = append(lines, "✓  Windows on your own time zone: "+s.reads+" (Alibi is off)")
-		default:
+		if held {
 			lines = append(lines, "✓  Windows on Alibi's location: "+s.reads)
+		} else {
+			lines = append(lines, "✓  Windows on your VPN's time zone: "+s.reads)
 		}
 	case !s.settings.Sync:
-		lines = append(lines, "Windows reads "+s.reads+" (it doesn't follow Alibi now)")
+		lines = append(lines, "Windows reads "+s.reads+" (it doesn't follow your VPN now)")
 	case s.target != "":
 		lines = append(lines, "⚠  Windows reads "+s.reads+", not "+s.target)
 	default:
 		lines = append(lines, "Windows reads "+s.reads)
 	}
 	// A clock in one country, a connection in another: sites can compare the two.
-	if !following && s.wish.Timezone != "" && s.looked {
+	if held && s.looked {
 		if clock := zoneCountries[s.wish.Timezone]; clock != "" && clock != s.place.Country {
 			lines = append(lines, "⚠  Windows says "+countryName(clock)+"; your connection comes out in "+countryName(s.place.Country))
 		}
@@ -427,7 +427,12 @@ func (t *trayApp) showMenu(hwnd uintptr) {
 		}
 		return mfGrayed
 	}
-	add(check(s.settings.Sync), cmdSync, "Keep Windows on Alibi's location")
+	add(check(s.settings.Sync), cmdSync, "Keep Windows on my VPN's time zone")
+	syncing := uintptr(mfGrayed)
+	if s.settings.Sync {
+		syncing = 0
+	}
+	add(check(s.settings.FollowAlibi)|syncing, cmdFollowAlibi, "      or on Alibi's location for all sites")
 	add(check(alerts), cmdAlerts, "Alert me when something's wrong")
 	add(check(s.settings.Sound)|sub(), cmdSound, "      with a sound")
 	add(check(s.settings.EdgeLine)|sub(), cmdEdge, "      with a red line along the screen")
@@ -477,6 +482,11 @@ func (t *trayApp) command(cmd int) {
 				t.onSyncChange()
 			}
 		}()
+	case cmdFollowAlibi:
+		t.toggle(func(s *settings) { s.FollowAlibi = !s.FollowAlibi })
+		if t.onSyncChange != nil { // a place, or back to the connection's zone
+			go t.onSyncChange()
+		}
 	case cmdAlerts:
 		t.toggle(func(s *settings) { s.Alerts = !s.Alerts })
 	case cmdSound:
@@ -554,4 +564,10 @@ func (t *trayApp) syncOn() bool {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	return t.settings.Sync
+}
+
+func (t *trayApp) followAlibiOn() bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.settings.FollowAlibi
 }

@@ -13,7 +13,8 @@ import (
 
 // The agent keeps the system on the time zone of wherever the connection comes out. Every program
 // then reads the VPN's zone natively: a page's very first script, its workers of every kind, and
-// apps outside the browser. Alibi sees the system already where its cover is, and fakes nothing.
+// apps outside the browser. With Follow Alibi's location on in the tray, a place Alibi has for all
+// sites moves it there instead. Off and Match my IP address in Alibi ask nothing of the system.
 //
 // On Windows it also sets the region ("Country or region") when, and only when, that changes the
 // name browsers give the zone: the W. Europe zone reads as Europe/Oslo only with the region set to
@@ -104,6 +105,9 @@ type agentConfig struct {
 	dryRun bool
 	// Whether to move the system now (the tray can switch it off); nil means always.
 	sync func() bool
+	// Whether a place Alibi has for all sites moves the system there (the tray's Follow Alibi's
+	// location); nil means never.
+	followAlibi func() bool
 	// Told after every look and every change of Alibi's cover.
 	report func(agentReport)
 	logf   func(format string, args ...any)
@@ -197,28 +201,38 @@ func (g *agent) syncLocked() agentReport {
 	return agentReport{Place: place, Err: g.lastErr, Wish: g.wish, System: system, Target: target}
 }
 
-// settle moves the system's clock where it should be: to Alibi's All sites cover, or for "Match my
-// IP address" (or before Alibi has said) to where the connection comes out, or for Alibi switched
-// off, back home. It returns the connection's place for the host, its zone as browsers now read it
-// when the system's on it; the zone it holds the system on, or ""; and the zone the system should
-// read. Whenever the system isn't there, the place keeps GeoJS's zone, so Alibi fakes it rather than
-// showing the real one. With sync off it leaves the system alone, but still says when it matches.
+// placeOf is the zone of the place Alibi has for all sites, when the agent follows it; "" otherwise.
+// Off and "Match my IP address" name no place: Alibi doesn't mind where the system is.
+func (a agentConfig) placeOf(w *wish) string {
+	if w == nil || w.Configuration == "browserDefault" || w.Configuration == "ipAddress" || w.Timezone == "" {
+		return ""
+	}
+	if a.followAlibi == nil || !a.followAlibi() {
+		return ""
+	}
+	return w.Timezone
+}
+
+// settle moves the system's clock where it should be: to the place Alibi has for all sites, with
+// Follow Alibi's location on, or otherwise to where the connection comes out. It returns the
+// connection's place for the host, its zone as browsers now read it when the system's on it; the zone
+// it holds the system on, or ""; and the zone the system should read. Whenever the system isn't there,
+// the place keeps GeoJS's zone, so Alibi fakes it rather than showing the real one. With sync off it
+// leaves the system alone, but still says when it matches.
 func (a agentConfig) settle(found cover, have bool, w *wish) (cover, string, string) {
-	following := w == nil || w.Configuration == "ipAddress"
+	place := a.placeOf(w)
 	var want setting
 	var err error
 	var why string
 	switch {
-	case following && !have:
+	case place == "" && !have:
 		return found, "", "" // nothing to aim at before the first answer
-	case following:
+	case place == "":
 		want, err = wanted(a.sys, found, a.home)
 		why = fmt.Sprintf("connection comes out in %s (%s)", found.Timezone, found.Country)
-	case w.Timezone == "":
-		want, why = a.home, "Alibi is off"
 	default:
-		want, err = wanted(a.sys, cover{Timezone: w.Timezone, Country: zoneCountries[w.Timezone]}, a.home)
-		why = "Alibi's location is " + w.Timezone
+		want, err = wanted(a.sys, cover{Timezone: place, Country: zoneCountries[place]}, a.home)
+		why = "Alibi's location is " + place
 	}
 	if err != nil {
 		a.logf("%v", err)
@@ -251,7 +265,7 @@ func (a agentConfig) settle(found cover, have bool, w *wish) (cover, string, str
 	if changed {
 		a.logf("%s: set Windows to %s, region %s, which browsers read as %s", why, want.Zone, want.Region, reads)
 	}
-	if following {
+	if place == "" {
 		found.Timezone = reads
 	}
 	if !syncing {
