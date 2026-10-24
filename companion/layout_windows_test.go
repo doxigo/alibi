@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -61,15 +62,11 @@ func (a *fakeAgentControl) stop() error {
 // fakeAutoTZ is Windows' "Set time zone automatically".
 type fakeAutoTZ struct {
 	enabled bool
-	sets    []bool
+	opened  int // times Settings > Date & time was opened
 }
 
-func (f *fakeAutoTZ) on() bool { return f.enabled }
-func (f *fakeAutoTZ) set(on bool) error {
-	f.sets = append(f.sets, on)
-	f.enabled = on
-	return nil
-}
+func (f *fakeAutoTZ) on() bool      { return f.enabled }
+func (f *fakeAutoTZ) openSettings() { f.opened++ }
 
 type windowsTest struct {
 	sys    system
@@ -261,7 +258,8 @@ func TestWindowsUpdateKeepsFollowingOff(t *testing.T) {
 	}
 }
 
-// With Windows' automatic time zone on, install offers to turn it off, and remembers that it did.
+// With Windows' automatic time zone on, install offers to open Date & time settings, where you
+// switch it off. It never changes the setting itself.
 func TestWindowsInstallOffersToTurnOffAutomaticTimeZone(t *testing.T) {
 	w := windowsSystem(t, fakeDownload(t, "program 1"))
 	w.autoTZ.enabled = true
@@ -270,11 +268,11 @@ func TestWindowsInstallOffersToTurnOffAutomaticTimeZone(t *testing.T) {
 	if err := install(w.sys, &out, false, true); err != nil {
 		t.Fatal(err)
 	}
-	if len(w.asked) != 1 || len(w.autoTZ.sets) != 1 || w.autoTZ.sets[0] != false {
-		t.Fatalf("asked %q, set %v", w.asked, w.autoTZ.sets)
+	if len(w.asked) != 1 || w.autoTZ.opened != 1 || !w.autoTZ.enabled {
+		t.Fatalf("asked %q, opened Settings %d times, automatic time zone on %v", w.asked, w.autoTZ.opened, w.autoTZ.enabled)
 	}
-	if _, err := os.Stat(filepath.Join(w.l.dir, autoTimeZoneMarker)); err != nil {
-		t.Error("didn't remember turning it off")
+	if entries, _ := os.ReadDir(w.l.dir); slices.ContainsFunc(entries, func(e os.DirEntry) bool { return e.Name() == "autotz-was-on" }) {
+		t.Error("left a marker: there's nothing to undo")
 	}
 
 	// Asked nothing (no console), it only warns.
@@ -282,8 +280,8 @@ func TestWindowsInstallOffersToTurnOffAutomaticTimeZone(t *testing.T) {
 	quiet.autoTZ.enabled = true
 	out.Reset()
 	install(quiet.sys, &out, false, true)
-	if len(quiet.autoTZ.sets) != 0 || !strings.Contains(out.String(), "Set time zone automatically") {
-		t.Errorf("set %v; output %s", quiet.autoTZ.sets, out.String())
+	if quiet.autoTZ.opened != 0 || !strings.Contains(out.String(), "Set time zone automatically") {
+		t.Errorf("opened Settings %d times; output %s", quiet.autoTZ.opened, out.String())
 	}
 }
 
@@ -337,6 +335,7 @@ func TestWindowsUninstall(t *testing.T) {
 		t.Fatal(err)
 	}
 	w.agentMoved(t, setting{"West Asia Standard Time", "TJ"})
+	w.autoTZ.enabled = false // you switched it off in Settings
 	edge := `Software\Microsoft\Edge\NativeMessagingHosts\` + hostName
 	w.reg.setValue(edge, "", `C:\Other\host.json`) // someone else's since
 	var out bytes.Buffer
@@ -349,33 +348,38 @@ func TestWindowsUninstall(t *testing.T) {
 	if w.agent.on || w.zones.zoneNow != home.Zone || w.zones.regionNow != home.Region {
 		t.Errorf("app running %v, Windows on %s/%s", w.agent.on, w.zones.zoneNow, w.zones.regionNow)
 	}
-	// It turned the automatic time zone off at install, so it offers to turn it back on.
-	if len(w.autoTZ.sets) != 2 || !w.autoTZ.sets[1] {
-		t.Errorf("automatic time zone set %v, want off then on again", w.autoTZ.sets)
+	// With the automatic time zone off, it reminds you, and offers Settings again.
+	if w.autoTZ.opened != 2 {
+		t.Errorf("opened Settings %d times, want at install and at uninstall", w.autoTZ.opened)
 	}
 	if _, err := os.Stat(w.l.dir); !os.IsNotExist(err) {
 		entries, _ := os.ReadDir(w.l.dir)
 		t.Errorf("%s still there: %v", w.l.dir, entries)
 	}
-	for _, want := range []string{"Put Windows back on Iran Standard Time, region US", "Left Microsoft Edge alone", "Turned Windows' automatic time zone back on", "Removed Alibi Companion"} {
+	for _, want := range []string{"Put Windows back on Iran Standard Time, region US", "Left Microsoft Edge alone", "switch it back on in Settings", "Removed Alibi Companion"} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("output lacks %q:\n%s", want, out.String())
 		}
 	}
 }
 
-// A quiet uninstall asks nothing.
+// A quiet uninstall asks nothing, but still reminds you about the automatic time zone.
 func TestWindowsQuietUninstall(t *testing.T) {
 	w := windowsSystem(t, fakeDownload(t, "program 1"))
 	w.autoTZ.enabled = true
 	w.answering(true)
 	install(w.sys, &bytes.Buffer{}, false, true)
 	w.asked = nil
-	if err := uninstall(w.sys, &bytes.Buffer{}, true); err != nil {
+	w.autoTZ.enabled = false
+	var out bytes.Buffer
+	if err := uninstall(w.sys, &out, true); err != nil {
 		t.Fatal(err)
 	}
 	if len(w.asked) != 0 {
 		t.Errorf("asked %q", w.asked)
+	}
+	if !strings.Contains(out.String(), "switch it back on in Settings") {
+		t.Errorf("output: %s", out.String())
 	}
 }
 
