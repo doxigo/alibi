@@ -240,7 +240,7 @@ func agentCommand(sys system, options []string, stderr io.Writer) error {
 		if err != nil {
 			return err
 		}
-		w, _ := readWish(l.agent.wanted) // Alibi's last word, if it has said
+		w := readWish(l.agent.covers) // the place Alibi's running browsers ask for, if any
 		follows := loadSettings(l.agent.settings).FollowAlibi
 		agentConfig{sys: sys.zones, home: home, dryRun: true, logf: logger.Printf, followAlibi: func() bool { return follows }}.settle(place, true, w)
 		return nil
@@ -330,28 +330,21 @@ func agentCommand(sys system, options []string, stderr io.Writer) error {
 	}}
 	tray.onTimeChange = follower.reassert
 	tray.onSyncChange = follower.reassert
-	// Alibi's All sites cover, as the host keeps it: Windows follows it within a second of a change.
-	readWishNow := func() {
-		if w, err := readWish(l.agent.wanted); err == nil {
-			follower.setWish(w)
-		}
-	}
-	readWishNow()
+	// The place Alibi's running browsers ask for, as their hosts keep it: Windows follows it within a
+	// second of a change, and lets go within a second of the last of those browsers closing.
+	os.Remove(filepath.Join(l.dir, "wanted.json")) // where an earlier build kept one cover for every browser
+	follower.setWish(readWish(l.agent.covers))
 	running.Add(1)
 	go func() {
 		defer running.Done()
 		tick := time.NewTicker(time.Second)
 		defer tick.Stop()
-		var seen time.Time
 		for {
 			select {
 			case <-ctx.Done():
 				return
 			case <-tick.C:
-				if info, err := os.Stat(l.agent.wanted); err == nil && !info.ModTime().Equal(seen) {
-					seen = info.ModTime()
-					readWishNow()
-				}
+				follower.setWish(readWish(l.agent.covers))
 			}
 		}
 	}()
