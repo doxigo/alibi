@@ -204,7 +204,7 @@ func (g *agent) syncLocked() agentReport {
 // placeOf is the zone of the place Alibi has for all sites, when the agent follows it; "" otherwise.
 // Off and "Match my IP address" name no place: Alibi doesn't mind where the system is.
 func (a agentConfig) placeOf(w *wish) string {
-	if w == nil || w.Configuration == "browserDefault" || w.Configuration == "ipAddress" || w.Timezone == "" {
+	if w == nil || !w.namesPlace() {
 		return ""
 	}
 	if a.followAlibi == nil || !a.followAlibi() {
