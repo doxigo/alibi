@@ -226,10 +226,8 @@ func setUpAgent(sys system, l layout, out io.Writer, timezone bool) error {
 	if err := replaceProgram(l.dir, l.agent.exe, windowed); err != nil {
 		return fmt.Errorf("couldn't copy the tray app: %w", err)
 	}
-	home, err := currentHome(sys.zones, l.agent.home)
-	if err != nil {
-		return fmt.Errorf("couldn't read how the time zone is set now: %w", err)
-	}
+	// On a Windows too old for time zone sync, the tray app still shows where you are.
+	home, homeErr := currentHome(sys.zones, l.agent.home)
 	// A first install follows Alibi; an update keeps whatever you chose in the tray since. Only
 	// --no-timezone turns following off.
 	_, err = os.Stat(l.agent.settings)
@@ -250,7 +248,9 @@ func setUpAgent(sys system, l layout, out io.Writer, timezone bool) error {
 	}
 
 	fmt.Fprintln(out, "\nAlibi Companion now runs in the tray, and starts every time you sign in.")
-	if timezone {
+	if homeErr != nil {
+		fmt.Fprintf(out, "It can't keep Windows on your VPN's time zone here: %v\n", homeErr)
+	} else if timezone {
 		fmt.Fprintln(out, "Windows follows your VPN's time zone. To have it follow a place you choose in Alibi for all sites")
 		fmt.Fprintln(out, "instead, turn on \"Follow Alibi's location\" in the tray.")
 		fmt.Fprintf(out, "Quitting or uninstalling puts it back to %s, region %s.\n", home.Zone, home.Region)

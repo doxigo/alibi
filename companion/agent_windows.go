@@ -34,6 +34,22 @@ var (
 	sendMessageTimout = user32.NewProc("SendMessageTimeoutW")
 )
 
+// syncSupported says whether this Windows has every function time zone sync calls. LazyProc.Call
+// panics on one that's missing (ucal_getHostTimeZone is newer than the rest of ICU), so this is asked
+// before anything reads or moves the zone, and only once: the answer can't change while it runs.
+var syncSupported = sync.OnceValue(func() error {
+	return allFound(ucalWindowsZone, ucalIANAZone, ucalHostZone, getUserGeoName, setUserGeoName)
+})
+
+func allFound(procs ...*windows.LazyProc) error {
+	for _, p := range procs {
+		if err := p.Find(); err != nil {
+			return fmt.Errorf("time zone sync needs Windows 10 version 1903 or later: %w", err)
+		}
+	}
+	return nil
+}
+
 const (
 	agentMutexName = `Local\AlibiCompanionAgent`
 	agentQuitName  = `Local\AlibiCompanionAgentQuit`
@@ -70,6 +86,9 @@ func (windowsZones) setZone(id string) error {
 }
 
 func (windowsZones) region() (string, error) {
+	if err := syncSupported(); err != nil {
+		return "", err
+	}
 	buf := make([]uint16, 16)
 	n, _, err := getUserGeoName.Call(uintptr(unsafe.Pointer(&buf[0])), uintptr(len(buf)))
 	if n == 0 {
@@ -79,6 +98,9 @@ func (windowsZones) region() (string, error) {
 }
 
 func (windowsZones) setRegion(code string) error {
+	if err := syncSupported(); err != nil {
+		return err
+	}
 	name, err := windows.UTF16PtrFromString(code)
 	if err != nil {
 		return err
@@ -104,6 +126,9 @@ func icuFailed(name string, status int32, n uintptr) error {
 }
 
 func (windowsZones) windowsZone(iana string) (string, error) {
+	if err := syncSupported(); err != nil {
+		return "", err
+	}
 	in, out := utf16(iana), make([]uint16, 128)
 	if len(in) == 0 {
 		return "", errors.New("no zone")
@@ -117,6 +142,9 @@ func (windowsZones) windowsZone(iana string) (string, error) {
 }
 
 func (windowsZones) ianaZone(windowsID, region string) (string, error) {
+	if err := syncSupported(); err != nil {
+		return "", err
+	}
 	in, out := utf16(windowsID), make([]uint16, 128)
 	if len(in) == 0 {
 		return "", errors.New("no zone")
@@ -136,6 +164,9 @@ func (windowsZones) ianaZone(windowsID, region string) (string, error) {
 }
 
 func (windowsZones) hostZone() (string, error) {
+	if err := syncSupported(); err != nil {
+		return "", err
+	}
 	out := make([]uint16, 128)
 	var status int32
 	n, _, _ := ucalHostZone.Call(uintptr(unsafe.Pointer(&out[0])), uintptr(len(out)), uintptr(unsafe.Pointer(&status)))
@@ -270,16 +301,22 @@ func agentCommand(sys system, options []string, stderr io.Writer) error {
 
 	// In UTC: the program's own idea of local time is fixed when it starts, and it moves the zone.
 	logger := log.New(openLog(l.agent.log), "", log.LstdFlags|log.LUTC)
-	h, err := loadHome(sys.zones, l.agent.home)
-	if err != nil {
+	// On an older Windows the tray still shows where you are and relays it to Alibi; it moves nothing.
+	unsupported := syncSupported()
+	var h homeState
+	if unsupported != nil {
+		logger.Printf("started; %v", unsupported)
+	} else if h, err = loadHome(sys.zones, l.agent.home); err != nil {
 		logger.Printf("couldn't record how Windows is set now: %v", err)
 		return err
 	}
 	homeZone, _ := sys.zones.ianaZone(baseZone(h.Zone), h.Region)
-	logger.Printf("started; home is %s, region %s (%s)", h.Zone, h.Region, homeZone)
+	if unsupported == nil {
+		logger.Printf("started; home is %s, region %s (%s)", h.Zone, h.Region, homeZone)
+	}
 
 	tray := &trayApp{
-		l: l, sys: sys, homeZone: homeZone, settingsPath: l.agent.settings,
+		l: l, sys: sys, unsupported: unsupported, homeZone: homeZone, settingsPath: l.agent.settings,
 		settings: loadSettings(l.agent.settings), nudge: make(chan struct{}, 1), logf: logger.Printf,
 	}
 	if err := newTray(tray); err != nil {
@@ -318,7 +355,7 @@ func agentCommand(sys system, options []string, stderr io.Writer) error {
 	watch := defaultWatch(geo.lookup, logger.Printf)
 	watch.nudge = tray.nudge
 	follower := &agent{agentConfig: agentConfig{
-		watch: watch, sys: sys.zones, home: h.setting, held: h.Held, homeIn: h.Country, homeFile: l.agent.home, state: l.agent.state, logf: logger.Printf,
+		watch: watch, sys: sys.zones, unsupported: unsupported, home: h.setting, held: h.Held, homeIn: h.Country, homeFile: l.agent.home, state: l.agent.state, logf: logger.Printf,
 		sync: tray.syncOn, followAlibi: tray.followAlibiOn, homeCountry: tray.homeCountrySet,
 		report: func(r agentReport) {
 			if tray.report(r) {
