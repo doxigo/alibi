@@ -544,6 +544,37 @@ func TestAZoneYouSetOnAVPNBecomesHome(t *testing.T) {
 	}
 }
 
+// You change only the time zone while the agent has the region on the VPN's country: home takes your
+// zone and keeps its own region, and letting go puts that region back.
+func TestAZoneYouSetKeepsHomesRegion(t *testing.T) {
+	if got, held := adopt(home, &tajik, setting{"Arabian Standard Time", "TJ"}); got != (setting{"Arabian Standard Time", "US"}) || held == nil || *held != (setting{"Arabian Standard Time", "TJ"}) {
+		t.Errorf("zone changed: home %v, held %v", got, held)
+	}
+	if got, held := adopt(home, &tajik, setting{tajik.Zone, "DE"}); got != (setting{home.Zone, "DE"}) || held == nil {
+		t.Errorf("region changed: home %v, held %v", got, held)
+	}
+	if got, held := adopt(home, &tajik, setting{"Arabian Standard Time", "DE"}); got != (setting{"Arabian Standard Time", "DE"}) || held != nil {
+		t.Errorf("both changed: home %v, held %v", got, held)
+	}
+	if got, held := adopt(home, nil, setting{"Arabian Standard Time", "US"}); got != (setting{"Arabian Standard Time", "US"}) || held != nil {
+		t.Errorf("nothing held: home %v, held %v", got, held)
+	}
+	g, f := newHomeAgent(t)
+	g.reassert() // the VPN's zone and region: West Asia, TJ
+	f.zoneNow = "Arabian Standard Time"
+	g.release()
+	if f.zoneNow != "Arabian Standard Time" || f.regionNow != "US" {
+		t.Errorf("after letting go, Windows on %s/%s, want your zone and home's region", f.zoneNow, f.regionNow)
+	}
+	// The same, while the agent wasn't running.
+	path := filepath.Join(t.TempDir(), "home.json")
+	saveHome(path, homeState{setting: home, Held: &tajik})
+	f.zoneNow, f.regionNow = "Arabian Standard Time", "TJ"
+	if h, _ := loadHome(f, path); h.setting != (setting{"Arabian Standard Time", "US"}) || h.Held == nil {
+		t.Errorf("loaded %+v", h)
+	}
+}
+
 // Switching following off puts Windows back home once, then leaves it alone: a zone you set after
 // that isn't undone, and becomes home.
 func TestFollowingOffLetsGoOnce(t *testing.T) {
@@ -604,8 +635,8 @@ func TestLoadHome(t *testing.T) {
 	if h, _ := loadHome(f, path); h.setting != home || h.Held == nil || *h.Held != tajik {
 		t.Errorf("still held: %+v", h)
 	}
-	f.zoneNow = "Arabian Standard Time" // changed while the agent wasn't running
-	if h, _ := loadHome(f, path); h.Zone != "Arabian Standard Time" || h.Region != "TJ" || h.Held != nil {
+	f.zoneNow = "Arabian Standard Time" // changed while the agent wasn't running; the region is still its
+	if h, _ := loadHome(f, path); h.Zone != "Arabian Standard Time" || h.Region != "US" || h.Held == nil || h.Held.Region != "TJ" {
 		t.Errorf("changed meanwhile: %+v", h)
 	}
 	// An earlier agent recorded home once and held Windows from then on.

@@ -304,13 +304,36 @@ func (g *agent) noticeLocked() {
 	if err != nil || h.Held != nil && now == *h.Held || h.Held == nil && now == h.setting {
 		return
 	}
-	g.logf("Windows was set to %s, region %s, by something else, so that's home now", now.Zone, now.Region)
+	home, held := adopt(h.setting, h.Held, now)
+	g.logf("Windows was set to %s, region %s, by something else, so home is now %s, region %s", now.Zone, now.Region, home.Zone, home.Region)
 	setOn := h.SetOn
 	if g.have && g.found.Country != "" && g.found.Country == g.homeCountryLocked() {
 		setOn = g.found.Timezone
 	}
-	*h = homeState{setting: now, Country: h.Country, SetOn: setOn, Version: 1}
+	*h = homeState{setting: home, Held: held, Country: h.Country, SetOn: setOn, Version: 1}
 	g.saveHomeLocked()
+}
+
+// adopt takes what someone else changed as home: the zone, the region, or both, wherever it differs
+// from what the agent left (what it held, or home while it held nothing). The part they didn't touch
+// keeps home's: a zone you set while the agent had the region on the VPN's country leaves home's region
+// as it was. It returns the new home, and what the agent still holds, nil when nothing is its own.
+func adopt(home setting, held *setting, now setting) (setting, *setting) {
+	left := home
+	if held != nil {
+		left = *held
+	}
+	next := home
+	if now.Zone != left.Zone {
+		next.Zone = now.Zone
+	}
+	if now.Region != left.Region {
+		next.Region = now.Region
+	}
+	if held == nil || next == now {
+		return next, nil
+	}
+	return next, &now
 }
 
 // sameWindowsZone reports whether two zone names are one Windows zone.
@@ -553,10 +576,14 @@ func loadHome(sys zoneSystem, path string) (homeState, error) {
 			h.Held = nil
 		}
 	case err == nil && h.Held != nil && *h.Held == now:
-	case err != nil && !errors.Is(err, os.ErrNotExist) && !errors.Is(err, errNoHome):
+	case err == nil:
+		// Changed while the agent wasn't running: what changed is home now.
+		home, held := adopt(h.setting, h.Held, now)
+		h = homeState{setting: home, Held: held, Country: h.Country, SetOn: h.SetOn}
+	case !errors.Is(err, os.ErrNotExist) && !errors.Is(err, errNoHome):
 		return homeState{}, err
 	default:
-		h = homeState{setting: now, Country: h.Country, SetOn: h.SetOn}
+		h = homeState{setting: now}
 	}
 	if h.Country == "" {
 		h.Country = countryOf(sys, h.setting)
