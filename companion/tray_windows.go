@@ -332,8 +332,7 @@ func (t *trayApp) statusLines(s snapshot) []string {
 		}
 	}
 	// A place Alibi has for all sites, which Windows is following.
-	held := s.settings.FollowAlibi && s.wish != nil && s.wish.Configuration != "browserDefault" &&
-		s.wish.Configuration != "ipAddress" && s.wish.Timezone != ""
+	held := s.settings.FollowAlibi && s.wish != nil && s.wish.namesPlace()
 	switch {
 	case s.reads == "":
 	case s.system != "" && s.system == s.reads:

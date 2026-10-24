@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -382,26 +383,112 @@ func TestReadMessages(t *testing.T) {
 	}
 }
 
-func TestTakeCover(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "wanted.json")
+func TestParseCover(t *testing.T) {
 	for _, c := range []struct {
 		message string
-		want    *wish // nil: nothing kept
+		want    *wish // nil: not a cover
 		err     bool
 	}{
 		{`{"cover":{"configuration":"tokyo","timezone":"Asia/Tokyo"}}`, &wish{"tokyo", "Asia/Tokyo"}, false},
 		{`{"cover":{"configuration":"browserDefault","timezone":null}}`, &wish{"browserDefault", ""}, false},
 		{`{"cover":{"configuration":"ipAddress","timezone":"America/Argentina/Buenos_Aires"}}`, &wish{"ipAddress", "America/Argentina/Buenos_Aires"}, false},
 		{`{"something":"else"}`, nil, false},
+		{`{"following":true}`, nil, false},
 		{`not json`, nil, false},
 		{`{"cover":{"configuration":"tokyo","timezone":"../../etc"}}`, nil, true},
 		{`{"cover":{"configuration":"","timezone":"Asia/Tokyo"}}`, nil, true},
 	} {
-		os.Remove(path)
-		err := takeCover([]byte(c.message), path)
-		got, _ := readWish(path)
+		got, err := parseCover([]byte(c.message))
 		if (err != nil) != c.err || (c.want == nil) != (got == nil) || (c.want != nil && *got != *c.want) {
-			t.Errorf("%s: kept %+v, err %v", c.message, got, err)
+			t.Errorf("%s: got %+v, err %v", c.message, got, err)
+		}
+	}
+}
+
+// A process that has exited, with the number it had.
+func exitedProcess(t *testing.T) process {
+	t.Helper()
+	cmd := exec.Command(os.Args[0], "-test.run=^$")
+	if err := cmd.Run(); err != nil {
+		t.Fatal(err)
+	}
+	return process{pid: cmd.ProcessState.Pid(), started: 1}
+}
+
+func TestProcessRunning(t *testing.T) {
+	me := thisProcess()
+	if !me.running() {
+		t.Error("this process doesn't count as running")
+	}
+	if p := exitedProcess(t); p.running() {
+		t.Errorf("process %d still counts as running after it exited", p.pid)
+	}
+	if runtime.GOOS == "windows" && (process{pid: me.pid, started: me.started + 1}).running() {
+		t.Error("a later process with the same number counts as this one")
+	}
+}
+
+// Each host keeps its browser's cover in a file of its own. The agent reads only those of hosts that
+// still run, and deletes what the others left.
+func TestCoversLastOnlyAsLongAsTheirHost(t *testing.T) {
+	dir := t.TempDir()
+	me := thisProcess()
+	if err := keepCover(dir, me, wish{"tokyo", "Asia/Tokyo"}); err != nil {
+		t.Fatal(err)
+	}
+	gone := exitedProcess(t)
+	if err := keepCover(dir, gone, wish{"oslo", "Europe/Oslo"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := readWish(dir); got == nil || *got != (wish{"tokyo", "Asia/Tokyo"}) {
+		t.Errorf("read %+v, want this process's Tokyo", got)
+	}
+	if _, err := os.Stat(coverPath(dir, gone.pid)); !os.IsNotExist(err) {
+		t.Error("the cover of a host that has gone is still there")
+	}
+	// A new word replaces the old one in the same file, even while the agent has it open to read.
+	f, err := os.Open(coverPath(dir, me.pid))
+	if err != nil {
+		t.Fatal(err)
+	}
+	go func() { time.Sleep(50 * time.Millisecond); f.Close() }()
+	if err := keepCover(dir, me, wish{"seoul", "Asia/Seoul"}); err != nil {
+		t.Fatalf("while the file was open: %v", err)
+	}
+	if got := readWish(dir); got == nil || got.Timezone != "Asia/Seoul" {
+		t.Errorf("read %+v after the change", got)
+	}
+	forgetCover(dir, me)
+	if got := readWish(dir); got != nil {
+		t.Errorf("read %+v after the host left", got)
+	}
+	if left, _ := filepath.Glob(filepath.Join(dir, "*")); len(left) > 0 {
+		t.Errorf("left behind %v", left)
+	}
+}
+
+// With Alibi in more than one browser or profile, the newest place wins. Off and Match my IP address
+// never outvote a place in another browser.
+func TestPickWish(t *testing.T) {
+	at := func(s int) time.Time { return time.Unix(1_761_217_200+int64(s), 0) }
+	tokyoCover, seoul := wish{"tokyo", "Asia/Tokyo"}, wish{"seoul", "Asia/Seoul"}
+	off, byIP := wish{Configuration: "browserDefault"}, wish{"ipAddress", "Europe/Oslo"}
+	for _, c := range []struct {
+		name  string
+		heard []heardCover
+		want  *wish
+	}{
+		{"none", nil, nil},
+		{"one place", []heardCover{{Cover: tokyoCover, Updated: at(0)}}, &tokyoCover},
+		{"Off later", []heardCover{{Cover: tokyoCover, Updated: at(0)}, {Cover: off, Updated: at(5)}}, &tokyoCover},
+		{"Match my IP later", []heardCover{{Cover: byIP, Updated: at(9)}, {Cover: tokyoCover, Updated: at(0)}}, &tokyoCover},
+		{"newest place", []heardCover{{Cover: seoul, Updated: at(7)}, {Cover: tokyoCover, Updated: at(3)}}, &seoul},
+		{"no place", []heardCover{{Cover: off, Updated: at(1)}, {Cover: byIP, Updated: at(2)}}, nil},
+		{"a zone of its own", []heardCover{{Cover: wish{Configuration: "custom"}, Updated: at(1)}}, nil},
+	} {
+		got := pickWish(c.heard)
+		if (got == nil) != (c.want == nil) || got != nil && *got != *c.want {
+			t.Errorf("%s: %+v, want %+v", c.name, got, c.want)
 		}
 	}
 }
@@ -448,11 +535,11 @@ func TestHostAnswersAlibiAndExitsWhenThePortCloses(t *testing.T) {
 	go io.Copy(io.Discard, stdoutR)
 	frame := []byte(`{"cover":{"configuration":"tokyo","timezone":"Asia/Tokyo"}}`)
 	writeFrame(stdinW, frame)
+	covers := filepath.Join(local, "Programs", "Alibi Companion", "covers")
 	if runtime.GOOS == "windows" {
-		path := filepath.Join(local, "Programs", "Alibi Companion", "wanted.json")
 		var got *wish
 		for range 50 {
-			if got, _ = readWish(path); got != nil {
+			if got = readWish(covers); got != nil {
 				break
 			}
 			time.Sleep(20 * time.Millisecond)
@@ -469,6 +556,10 @@ func TestHostAnswersAlibiAndExitsWhenThePortCloses(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("host still running after the browser closed the port")
+	}
+	// Its cover goes with it: the agent stops following a browser that's closed, or an Alibi removed.
+	if left, _ := filepath.Glob(filepath.Join(covers, "*")); len(left) > 0 {
+		t.Errorf("the host left %v behind", left)
 	}
 }
 

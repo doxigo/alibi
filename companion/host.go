@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -15,6 +16,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -39,22 +41,41 @@ func host(origin string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return 1
 	}
 	word := newFollowWord(olderAlibiAfter)
+	me := thisProcess()
+	if takesCovers {
+		defer forgetCover(l.agent.covers, me) // the agent stops following this browser's cover
+	}
+	var keepFailed atomic.Bool
 	// stdin closing means the browser closed the port.
 	go func() {
 		readMessages(stdin, func(message []byte) {
 			if on, ok := followingIn(message); ok {
 				word.set(on)
 			}
-			if takesCovers {
-				if err := takeCover(message, l.agent.wanted); err != nil {
-					logger.Print(err)
-				}
+			if !takesCovers {
+				return
+			}
+			w, err := parseCover(message)
+			if err != nil {
+				logger.Print(err)
+			}
+			if w == nil {
+				return
+			}
+			if err := keepCover(l.agent.covers, me, *w); err != nil {
+				// Alibi sends a cover only when it changes. Hanging up has it start the host again and resend.
+				logger.Printf("couldn't keep Alibi's cover for the agent: %v", err)
+				keepFailed.Store(true)
+				cancel()
 			}
 		})
 		cancel()
 	}()
 	if err := follow(ctx, defaultWatch(newGeoJS().lookup, logger.Printf), agentWord(sys), s, word); err != nil {
 		logger.Print(err)
+		return 1
+	}
+	if keepFailed.Load() {
 		return 1
 	}
 	return 0
@@ -361,15 +382,35 @@ type wish struct {
 	Timezone      string `json:"timezone"`
 }
 
-// Alibi's last word on its All sites cover, which the host keeps for the agent: wanted.json.
-type wishState struct {
+// namesPlace reports whether the cover is a place. Off and "Match my IP address" ask nothing of the
+// system's clock.
+func (w wish) namesPlace() bool {
+	return w.Configuration != "browserDefault" && w.Configuration != "ipAddress" && w.Timezone != ""
+}
+
+// process is one running program, told apart from a later one that gets the same number.
+type process struct {
+	pid     int
+	started int64 // when it started, in nanoseconds; 0 where the system needn't say
+}
+
+// heardCover is one host's word for the agent: the All sites cover its browser last sent, and when, with
+// the host's own process, so the agent can tell whether it still runs. Each host keeps its own file in
+// the covers folder, so two browsers or profiles never write over each other, and deletes it as it exits.
+type heardCover struct {
+	PID     int       `json:"pid"`
+	Started int64     `json:"started"`
 	Cover   wish      `json:"cover"`
 	Updated time.Time `json:"updated"`
 }
 
-// takeCover keeps the All sites cover from a message of Alibi's for the agent. Other messages are
-// ignored, and a cover that isn't well formed is refused.
-func takeCover(message []byte, path string) error {
+func coverPath(dir string, pid int) string {
+	return filepath.Join(dir, fmt.Sprintf("cover-%d.json", pid))
+}
+
+// parseCover reads the All sites cover from one of Alibi's messages: nil for any other message, and an
+// error for a cover that isn't well formed.
+func parseCover(message []byte) (*wish, error) {
 	var m struct {
 		Cover *struct {
 			Configuration string  `json:"configuration"`
@@ -377,31 +418,77 @@ func takeCover(message []byte, path string) error {
 		} `json:"cover"`
 	}
 	if json.Unmarshal(message, &m) != nil || m.Cover == nil {
-		return nil
+		return nil, nil
 	}
 	w := wish{Configuration: m.Cover.Configuration}
 	if m.Cover.Timezone != nil {
 		w.Timezone = *m.Cover.Timezone
 	}
 	if w.Configuration == "" || len(w.Configuration) > 64 || (w.Timezone != "" && (len(w.Timezone) > 64 || !zonePattern.MatchString(w.Timezone))) {
-		return fmt.Errorf("refused a cover from Alibi: %q", message)
+		return nil, fmt.Errorf("refused a cover from Alibi: %q", message)
 	}
-	b, _ := json.Marshal(wishState{Cover: w, Updated: time.Now().UTC()})
-	return writeFileAtomic(path, b, 0o644)
+	return &w, nil
 }
 
-// readWish reads the All sites cover the host last kept, if any.
-func readWish(path string) (*wish, error) {
-	b, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-	var state wishState
-	if err := json.Unmarshal(b, &state); err != nil || state.Cover.Configuration == "" {
-		return nil, fmt.Errorf("%s isn't a cover", path)
-	}
-	return &state.Cover, nil
+// keepCover writes this host's word for the agent.
+func keepCover(dir string, me process, w wish) error {
+	b, _ := json.Marshal(heardCover{PID: me.pid, Started: me.started, Cover: w, Updated: time.Now().UTC()})
+	return writeFileAtomic(coverPath(dir, me.pid), b, 0o644)
 }
+
+// forgetCover deletes this host's word as it exits.
+func forgetCover(dir string, me process) {
+	path := coverPath(dir, me.pid)
+	retry(func() error {
+		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		return nil
+	})
+}
+
+// liveCovers reads the word of every host that still runs, and deletes what hosts that have gone left
+// behind: a host the browser killed outright never got to delete its own.
+func liveCovers(dir string) []heardCover {
+	paths, _ := filepath.Glob(filepath.Join(dir, "cover-*.json"))
+	var live []heardCover
+	for _, path := range paths {
+		b, err := os.ReadFile(path)
+		if err != nil {
+			continue // being replaced: there next time
+		}
+		var h heardCover
+		if json.Unmarshal(b, &h) != nil || h.Cover.Configuration == "" {
+			continue
+		}
+		if !(process{pid: h.PID, started: h.Started}).running() {
+			os.Remove(path)
+			continue
+		}
+		live = append(live, h)
+	}
+	return live
+}
+
+// pickWish is the cover the system's clock can follow, among those of the browsers running now: the
+// newest that names a place. Off and "Match my IP address" never outvote another browser's place, and
+// closing a browser hands back to the others. nil when none names a place.
+func pickWish(heard []heardCover) *wish {
+	var newest *heardCover
+	for i := range heard {
+		if h := &heard[i]; h.Cover.namesPlace() && (newest == nil || h.Updated.After(newest.Updated)) {
+			newest = h
+		}
+	}
+	if newest == nil {
+		return nil
+	}
+	w := newest.Cover
+	return &w
+}
+
+// readWish is the place the hosts of the running browsers ask for, if any (pickWish).
+func readWish(dir string) *wish { return pickWish(liveCovers(dir)) }
 
 // The agent's latest word, which the host relays: agent.json in the companion's folder.
 type agentState struct {

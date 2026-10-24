@@ -93,7 +93,7 @@ type agentFiles struct {
 	state    string // agent.json: its latest place, for the host
 	log      string // agent.log
 	settings string // settings.json: what the tray lets you choose
-	wanted   string // wanted.json: Alibi's All sites cover, as the host last heard it
+	covers   string // the covers folder: each running host's word on Alibi's All sites cover (heardCover)
 }
 
 func newAgentFiles(dir string) *agentFiles {
@@ -103,7 +103,7 @@ func newAgentFiles(dir string) *agentFiles {
 		state:    agentStatePath(dir),
 		log:      filepath.Join(dir, "agent.log"),
 		settings: filepath.Join(dir, "settings.json"),
-		wanted:   filepath.Join(dir, "wanted.json"),
+		covers:   filepath.Join(dir, "covers"),
 	}
 }
 
@@ -355,9 +355,10 @@ func removeAgent(sys system, l layout, out io.Writer, quiet bool) error {
 	if err := sys.registry.deleteKey(uninstallKey); err != nil {
 		return err
 	}
-	for _, f := range []string{l.agent.state, l.agent.log, l.agent.settings, l.agent.wanted, marker} {
+	for _, f := range []string{l.agent.state, l.agent.log, l.agent.settings, marker} {
 		os.Remove(f)
 	}
+	os.RemoveAll(l.agent.covers)
 	if err := os.Remove(l.agent.exe); err != nil && !errors.Is(err, os.ErrNotExist) {
 		os.Rename(l.agent.exe, oldName(l.agent.exe))
 	}
@@ -539,17 +540,43 @@ func removeOld(dir string) {
 	}
 }
 
+// writeFileAtomic replaces path with data in one step, through a temporary file of its own, so two
+// writers never share one. Windows refuses to replace a file another program has open for a moment
+// (the agent reading it, say), so the rename is tried again for a while before it gives up.
 func writeFileAtomic(path string, data []byte, mode os.FileMode) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	next := path + ".new"
-	if err := os.WriteFile(next, data, mode); err != nil {
+	f, err := os.CreateTemp(dir, filepath.Base(path)+".*.new")
+	if err != nil {
 		return err
 	}
-	if err := os.Rename(next, path); err != nil {
+	next := f.Name()
+	_, err = f.Write(data)
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err == nil {
+		err = os.Chmod(next, mode)
+	}
+	if err == nil {
+		err = retry(func() error { return os.Rename(next, path) })
+	}
+	if err != nil {
 		os.Remove(next)
 		return err
 	}
 	return nil
+}
+
+// retry runs op until it succeeds, waiting longer each time, for about a second and a half in all.
+func retry(op func() error) error {
+	for wait := 10 * time.Millisecond; ; wait *= 2 {
+		err := op()
+		if err == nil || wait > 640*time.Millisecond {
+			return err
+		}
+		time.Sleep(wait)
+	}
 }
