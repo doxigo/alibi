@@ -49,6 +49,7 @@ type trayApp struct {
 	onTimeChange func() // when Windows says the time zone changed
 	onSyncChange func() // when the tray switches following the VPN or Alibi's location on or off
 	onRelease    func() // when it stops following: Windows goes back home
+	onSessionEnd func() // signing out or shutting down, before the tray goes
 
 	mu          sync.Mutex
 	homeZone    string // home's IANA zone, for its clock; the agent says when home moves
@@ -58,6 +59,7 @@ type trayApp struct {
 	looked      bool
 	lookErr     error // the last look's failure, if it failed
 	leaks       leakReport
+	elsewhere   bool   // another user's agent keeps the clock
 	reads       string // the zone browsers read now
 	wish        *wish  // Alibi's All sites cover, once Alibi has said
 	system      string // the zone the agent holds Windows on, or ""
@@ -151,7 +153,10 @@ func (t *trayApp) wndProc(hwnd, message, wParam, lParam uintptr) uintptr {
 	case wmQueryEndSession:
 		return 1
 	case wmEndSession:
-		if wParam != 0 { // signing out or shutting down: go, leaving the time zone as it is
+		if wParam != 0 { // signing out or shutting down: Windows goes back home, then the tray goes
+			if t.onSessionEnd != nil {
+				t.onSessionEnd()
+			}
 			t.removeIcon()
 			procPostQuitMessage.Call(0)
 		}
@@ -201,6 +206,7 @@ type snapshot struct {
 	looked      bool
 	lookErr     error
 	leaks       leakReport
+	elsewhere   bool
 	reads       string
 	wish        *wish
 	system      string
@@ -210,7 +216,7 @@ type snapshot struct {
 func (t *trayApp) snapshot() snapshot {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	return snapshot{t.homeZone, t.homeCountry, t.settings, t.place, t.looked, t.lookErr, t.leaks, t.reads, t.wish, t.system, t.target}
+	return snapshot{t.homeZone, t.homeCountry, t.settings, t.place, t.looked, t.lookErr, t.leaks, t.elsewhere, t.reads, t.wish, t.system, t.target}
 }
 
 // home is the country where the connection coming out means it's home.
@@ -348,6 +354,8 @@ func (t *trayApp) statusLines(s snapshot) []string {
 	switch {
 	case t.unsupported != nil:
 		lines = append(lines, "Time zone sync needs Windows 10 version 1903 or later")
+	case s.elsewhere:
+		lines = append(lines, "Another user's Alibi Companion keeps Windows' time zone now")
 	case s.reads == "":
 	case s.system != "" && s.system == s.reads:
 		if held {
@@ -553,7 +561,7 @@ func (t *trayApp) report(r agentReport) bool {
 		moved = !t.looked || r.Place.IP != t.place.IP || r.Place.Country != t.place.Country
 		t.place, t.looked = r.Place, true
 	}
-	t.lookErr, t.reads, t.wish, t.system, t.target = r.Err, reads, r.Wish, r.System, r.Target
+	t.lookErr, t.reads, t.wish, t.system, t.target, t.elsewhere = r.Err, reads, r.Wish, r.System, r.Target, r.Elsewhere
 	if r.HomeZone != "" {
 		t.homeZone = r.HomeZone
 	}

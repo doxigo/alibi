@@ -51,9 +51,44 @@ func allFound(procs ...*windows.LazyProc) error {
 }
 
 const (
+	// One agent per user, in that user's session.
 	agentMutexName = `Local\AlibiCompanionAgent`
 	agentQuitName  = `Local\AlibiCompanionAgentQuit`
+	// Windows has one time zone for everyone signed in: one agent at a time keeps it, whoever's it is.
+	clockMutexName = `Global\AlibiCompanionClock`
 )
+
+// clockLock is the machine's time zone, claimed by one agent at a time. It's held for as long as its
+// handle stays open, and every session sees it.
+type clockLock struct {
+	name   string
+	handle windows.Handle
+}
+
+// claim takes the clock, unless another agent has it: ERROR_ALREADY_EXISTS, or ERROR_ACCESS_DENIED when
+// that's another user's.
+func (c *clockLock) claim() bool {
+	if c.handle != 0 {
+		return true
+	}
+	name, _ := windows.UTF16PtrFromString(c.name)
+	h, err := windows.CreateMutex(nil, false, name)
+	if err == nil {
+		c.handle = h
+		return true
+	}
+	if h != 0 {
+		windows.CloseHandle(h)
+	}
+	return false
+}
+
+func (c *clockLock) close() {
+	if c.handle != 0 {
+		windows.CloseHandle(c.handle)
+		c.handle = 0
+	}
+}
 
 // windowsZones is the real system. tzutil sets the zone (it switches on the "Change the time zone"
 // privilege that standard users hold), and SetUserGeoName the region; neither needs admin rights.
@@ -302,16 +337,26 @@ func agentCommand(sys system, options []string, stderr io.Writer) error {
 	// In UTC: the program's own idea of local time is fixed when it starts, and it moves the zone.
 	logger := log.New(openLog(l.agent.log), "", log.LstdFlags|log.LUTC)
 	// On an older Windows the tray still shows where you are and relays it to Alibi; it moves nothing.
+	// Nor does it while another user's agent keeps the clock, and it records no home until it has it:
+	// how Windows is set then is that user's doing.
 	unsupported := syncSupported()
+	clock := &clockLock{name: clockMutexName}
+	defer clock.close()
+	elsewhere := unsupported == nil && !clock.claim()
 	var h homeState
-	if unsupported != nil {
+	switch {
+	case unsupported != nil:
 		logger.Printf("started; %v", unsupported)
-	} else if h, err = loadHome(sys.zones, l.agent.home); err != nil {
-		logger.Printf("couldn't record how Windows is set now: %v", err)
-		return err
+	case elsewhere:
+		logger.Printf("started; another user's Alibi Companion keeps Windows' time zone, so this one waits")
+	default:
+		if h, err = loadHome(sys.zones, l.agent.home); err != nil {
+			logger.Printf("couldn't record how Windows is set now: %v", err)
+			return err
+		}
 	}
 	homeZone, _ := sys.zones.ianaZone(baseZone(h.Zone), h.Region)
-	if unsupported == nil {
+	if unsupported == nil && !elsewhere {
 		logger.Printf("started; home is %s, region %s (%s)", h.Zone, h.Region, homeZone)
 	}
 
@@ -355,7 +400,8 @@ func agentCommand(sys system, options []string, stderr io.Writer) error {
 	watch := defaultWatch(geo.lookup, logger.Printf)
 	watch.nudge = tray.nudge
 	follower := &agent{agentConfig: agentConfig{
-		watch: watch, sys: sys.zones, unsupported: unsupported, home: h.setting, held: h.Held, homeIn: h.Country, homeFile: l.agent.home, state: l.agent.state, logf: logger.Printf,
+		watch: watch, sys: sys.zones, unsupported: unsupported, clockElsewhere: elsewhere,
+		home: h.setting, held: h.Held, homeIn: h.Country, homeFile: l.agent.home, state: l.agent.state, logf: logger.Printf,
 		sync: tray.syncOn, followAlibi: tray.followAlibiOn, homeCountry: tray.homeCountrySet,
 		report: func(r agentReport) {
 			if tray.report(r) {
@@ -369,6 +415,36 @@ func agentCommand(sys system, options []string, stderr io.Writer) error {
 	tray.onTimeChange = follower.reassert
 	tray.onSyncChange = follower.reassert
 	tray.onRelease = follower.release
+	// Signing out or shutting down: Windows goes back home, so the sign-in screen and whoever signs in
+	// next don't run on this user's location.
+	tray.onSessionEnd = follower.release
+	if elsewhere {
+		running.Add(1)
+		go func() { // takes the clock once the other user's agent lets go of it
+			defer running.Done()
+			tick := time.NewTicker(10 * time.Second)
+			defer tick.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-tick.C:
+				}
+				if !clock.claim() {
+					continue
+				}
+				h, err := loadHome(sys.zones, l.agent.home)
+				if err != nil {
+					logger.Printf("couldn't record how Windows is set now: %v", err)
+					clock.close()
+					continue
+				}
+				logger.Printf("now keeps Windows' time zone; home is %s, region %s", h.Zone, h.Region)
+				follower.takeClock(h)
+				return
+			}
+		}()
+	}
 	// The place Alibi's running browsers ask for, as their hosts keep it: Windows follows it within a
 	// second of a change, and lets go within a second of the last of those browsers closing.
 	os.Remove(filepath.Join(l.dir, "wanted.json")) // where an earlier build kept one cover for every browser
