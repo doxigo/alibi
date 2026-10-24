@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -122,6 +124,8 @@ type agentConfig struct {
 	followAlibi func() bool
 	// The country set as home in the tray, if one is; otherwise home's zone says.
 	homeCountry func() string
+	// Where this agent tells other users' agents what it does with the clock they share; nil for nowhere.
+	notes clockNotes
 	// Told after every look and every change of Alibi's cover.
 	report func(agentReport)
 	logf   func(format string, args ...any)
@@ -310,12 +314,87 @@ func (g *agent) homeLocked() *homeState {
 }
 
 func (g *agent) saveHomeLocked() {
-	if g.homeFile == "" || g.dryRun {
+	if g.dryRun {
 		return
 	}
-	if err := saveHome(g.homeFile, *g.homeLocked()); err != nil {
-		g.logf("couldn't save home: %v", err)
+	h := g.homeLocked()
+	if g.homeFile != "" {
+		if err := saveHome(g.homeFile, *h); err != nil {
+			g.logf("couldn't save home: %v", err)
+		}
 	}
+	if g.notes == nil {
+		return
+	}
+	if note := noteFor(*h); len(note.Zones) == 0 {
+		g.notes.clear()
+	} else if err := g.notes.write(note); err != nil {
+		g.logf("couldn't tell other users' agents about the clock: %v", err)
+	}
+}
+
+// clockNote is what an agent tells other users' agents about the time zone they all share: the zones
+// it holds Windows on or is about to set, and its own home zone. It's gone once the agent lets go, so a
+// note still there when another agent gets the clock was left by one that stopped without letting go,
+// and the zone it names is that agent's doing, not the next user's.
+type clockNote struct {
+	Zones []string `json:"zones"`
+	Home  string   `json:"home"`
+}
+
+// clockNotes is where every user's agent on this computer leaves its note: each writes only its own.
+type clockNotes interface {
+	write(clockNote) error
+	clear()
+	others() []clockNote
+}
+
+// noteFor is the note for home as it stands: the zones the agent holds, or is about to set, that
+// aren't home's.
+func noteFor(h homeState) clockNote {
+	note := clockNote{Home: h.Zone}
+	for _, s := range []*setting{h.Held, h.Pending} {
+		if s != nil && s.Zone != h.Zone && !slices.Contains(note.Zones, s.Zone) {
+			note.Zones = append(note.Zones, s.Zone)
+		}
+	}
+	return note
+}
+
+// leftBy finds the note of another user's agent that left the system on zone, if one did.
+func leftBy(notes []clockNote, zone string) (clockNote, bool) {
+	for _, n := range notes {
+		if slices.Contains(n.Zones, zone) {
+			return n, true
+		}
+	}
+	return clockNote{}, false
+}
+
+// fileClockNotes keeps each agent's note as a file of its own, name, in a folder every user can read
+// and add to (on Windows, in ProgramData).
+type fileClockNotes struct{ dir, name string }
+
+func (n fileClockNotes) write(note clockNote) error {
+	b, _ := json.Marshal(note)
+	return writeFileAtomic(filepath.Join(n.dir, n.name), b, 0o644)
+}
+
+func (n fileClockNotes) clear() { os.Remove(filepath.Join(n.dir, n.name)) }
+
+func (n fileClockNotes) others() []clockNote {
+	paths, _ := filepath.Glob(filepath.Join(n.dir, "*.json"))
+	var notes []clockNote
+	for _, path := range paths {
+		if filepath.Base(path) == n.name {
+			continue
+		}
+		var note clockNote
+		if b, err := os.ReadFile(path); err == nil && json.Unmarshal(b, &note) == nil {
+			notes = append(notes, note)
+		}
+	}
+	return notes
 }
 
 // noticeLocked takes a setting someone else made as home from now on. What the agent set itself is what
@@ -607,14 +686,28 @@ func saveHome(path string, h homeState) error {
 }
 
 // loadHome is home as the agent starts. Unless the system is still where the agent left it, how it's
-// set now is home: on the first run, and after a change made while the agent wasn't running.
-func loadHome(sys zoneSystem, path string) (homeState, error) {
+// set now is home: on the first run, and after a change made while the agent wasn't running. A zone
+// that another user's agent left the system on (others, their notes) is no change of yours: home keeps
+// its zone, or on the first run takes that agent's home zone, and the zone counts as held, so letting
+// go puts it back.
+func loadHome(sys zoneSystem, path string, others []clockNote) (homeState, error) {
 	now, err := currentSetting(sys)
 	if err != nil {
 		return homeState{}, err
 	}
 	h, err := readHome(path)
+	note, foreign := leftBy(others, now.Zone)
 	switch {
+	case foreign && err == nil && h.Version > 0:
+		left := h.setting
+		if h.Held != nil {
+			left = *h.Held
+		}
+		h.Held = &setting{Zone: now.Zone, Region: left.Region}
+		home, held, _ := adopt(h.setting, h.Held, h.Pending, now)
+		h = homeState{setting: home, Held: held, Country: h.Country, SetOn: h.SetOn}
+	case foreign && errors.Is(err, os.ErrNotExist) && note.Home != "":
+		h = homeState{setting: setting{Zone: note.Home, Region: now.Region}, Held: &now}
 	case err == nil && h.Version == 0:
 		// Recorded once by an earlier agent, which held the system wherever it was from then on.
 		h.Held = &now
@@ -635,6 +728,9 @@ func loadHome(sys zoneSystem, path string) (homeState, error) {
 		h.Country = countryOf(sys, h.setting)
 	}
 	h.Version = 1
+	if h.Held != nil && *h.Held == h.setting {
+		h.Held = nil
+	}
 	return h, saveHome(path, h)
 }
 

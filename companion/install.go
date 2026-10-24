@@ -26,6 +26,15 @@ type system struct {
 	autoTZ    autoTimeZoneControl // Windows only
 	// Asks a yes-or-no question on the console; nil when there's no one to ask.
 	ask func(question string) bool
+	// Where the agent tells other users' agents what it does with the clock; nil for nowhere.
+	notes clockNotes
+}
+
+func notesOf(n clockNotes) []clockNote {
+	if n == nil {
+		return nil
+	}
+	return n.others()
 }
 
 // autoTimeZoneControl is Windows' "Set time zone automatically", which you change in Settings.
@@ -50,6 +59,7 @@ func defaultSystem() system {
 		makeAgent: guiSubsystem,
 		autoTZ:    autoTimeZoneSwitch(),
 		ask:       consoleAsk(),
+		notes:     clockNotesHere(),
 	}
 }
 
@@ -325,6 +335,9 @@ func removeAgent(sys system, l layout, out io.Writer, quiet bool) error {
 	home, restored, err := restoreHome(sys.zones, l.agent.home)
 	if err != nil {
 		return fmt.Errorf("couldn't put the time zone back: %w", err)
+	}
+	if sys.notes != nil {
+		sys.notes.clear()
 	}
 	if restored {
 		fmt.Fprintf(out, "Put Windows back on %s, region %s\n", home.Zone, home.Region)

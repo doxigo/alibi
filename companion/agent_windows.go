@@ -361,7 +361,7 @@ func agentCommand(sys system, options []string, stderr io.Writer) error {
 	case elsewhere:
 		logger.Printf("started; another user's Alibi Companion keeps Windows' time zone, so this one waits")
 	default:
-		if h, err = loadHome(sys.zones, l.agent.home); err != nil {
+		if h, err = loadHome(sys.zones, l.agent.home, notesOf(sys.notes)); err != nil {
 			logger.Printf("couldn't record how Windows is set now: %v", err)
 			return err
 		}
@@ -411,7 +411,7 @@ func agentCommand(sys system, options []string, stderr io.Writer) error {
 	watch := defaultWatch(geo.lookup, logger.Printf)
 	watch.nudge = tray.nudge
 	follower := &agent{agentConfig: agentConfig{
-		watch: watch, sys: sys.zones, unsupported: unsupported, clockElsewhere: elsewhere,
+		watch: watch, sys: sys.zones, unsupported: unsupported, clockElsewhere: elsewhere, notes: sys.notes,
 		home: h.setting, held: h.Held, homeIn: h.Country, homeFile: l.agent.home, state: l.agent.state, logf: logger.Printf,
 		sync: tray.syncOn, followAlibi: tray.followAlibiOn, homeCountry: tray.homeCountrySet,
 		report: func(r agentReport) {
@@ -445,7 +445,7 @@ func agentCommand(sys system, options []string, stderr io.Writer) error {
 				if !clock.claim() {
 					continue
 				}
-				h, err := loadHome(sys.zones, l.agent.home)
+				h, err := loadHome(sys.zones, l.agent.home, notesOf(sys.notes))
 				if err != nil {
 					logger.Printf("couldn't record how Windows is set now: %v", err)
 					clock.close()
@@ -493,6 +493,17 @@ func agentCommand(sys system, options []string, stderr io.Writer) error {
 	}
 	logger.Printf("stopped")
 	return nil
+}
+
+// clockNotesHere is where every user's agent on this computer leaves its note about the clock: a folder
+// in ProgramData, which every user can read and add a file of their own to, named by their SID.
+func clockNotesHere() clockNotes {
+	base := os.Getenv("ProgramData")
+	user, err := windows.GetCurrentProcessToken().GetTokenUser()
+	if base == "" || err != nil {
+		return nil
+	}
+	return fileClockNotes{dir: filepath.Join(base, "Alibi Companion", "clock"), name: user.User.Sid.String() + ".json"}
 }
 
 // openLog appends to the agent's log, starting it over once it passes 1 MB.
