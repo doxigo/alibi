@@ -382,6 +382,39 @@ func TestAnUnsupportedWindowsIsLeftAlone(t *testing.T) {
 	}
 }
 
+// While another user's agent keeps the clock, this one moves nothing and records no home: how Windows
+// is set is that user's doing. Handed the clock, it records home as Windows is then, and follows.
+func TestAnAgentWaitsForTheClock(t *testing.T) {
+	g, f, reports := newAgent(t)
+	g.clockElsewhere = true
+	g.homeFile = filepath.Join(t.TempDir(), "home.json")
+	f.zoneNow = "Tokyo Standard Time" // the other user's agent has Windows on Tokyo
+	g.found, g.have = exit("Asia/Dushanbe", "TJ"), true
+	g.reassert()
+	g.release() // signing out
+	if len(f.calls) > 0 {
+		t.Errorf("changed %v while another agent keeps the clock", f.calls)
+	}
+	if _, err := os.Stat(g.homeFile); !os.IsNotExist(err) {
+		t.Error("recorded the other user's setting as home")
+	}
+	if r := (*reports)[len(*reports)-1]; !r.Elsewhere || r.Home != (setting{}) {
+		t.Errorf("report %+v", r)
+	}
+	f.zoneNow = home.Zone // the other user signed out, and their agent put Windows back
+	h, err := loadHome(f, g.homeFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	g.takeClock(h)
+	if f.zoneNow != tajik.Zone || f.regionNow != tajik.Region {
+		t.Errorf("with the clock, Windows on %s/%s", f.zoneNow, f.regionNow)
+	}
+	if hf := readHomeFile(t, g.homeFile); hf.setting != home || hf.Held == nil || *hf.Held != tajik {
+		t.Errorf("home.json %+v", hf)
+	}
+}
+
 // newHomeAgent is newAgent keeping home.json, with its connection already known to be in Tajikistan.
 func newHomeAgent(t *testing.T) (*agent, *fakeZones) {
 	g, f, _ := newAgent(t)

@@ -24,3 +24,24 @@ func TestSyncNeedsEveryFunction(t *testing.T) {
 		t.Errorf("this Windows: %v", err)
 	}
 }
+
+// One agent at a time keeps the machine's clock; another gets it once the first lets go.
+func TestOneAgentKeepsTheClock(t *testing.T) {
+	name := `Local\AlibiCompanionClockTest` + t.Name()
+	first, second := &clockLock{name: name}, &clockLock{name: name}
+	defer first.close()
+	defer second.close()
+	if !first.claim() {
+		t.Fatal("the first agent didn't get the clock")
+	}
+	if second.claim() {
+		t.Fatal("a second agent got the clock while the first had it")
+	}
+	if !first.claim() {
+		t.Error("the first agent lost the clock by asking again")
+	}
+	first.close()
+	if !second.claim() {
+		t.Error("the second agent didn't get the clock once the first let go")
+	}
+}

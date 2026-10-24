@@ -102,6 +102,9 @@ type agentConfig struct {
 	// Why the system's clock can't be moved here at all (an older Windows); nil when it can. The agent
 	// then only looks the connection up, for the tray and the host.
 	unsupported error
+	// Another user's agent keeps the system's clock, which every user shares: this one moves nothing
+	// and records no home until it's handed the clock (takeClock).
+	clockElsewhere bool
 	// Home, what the agent last set the system to, if it holds it anywhere, and the country the
 	// connection comes out in at home, "" for home's zone's (home.json, homeState).
 	home   setting
@@ -134,6 +137,7 @@ type agentReport struct {
 	Home        setting // home as it stands now
 	HomeZone    string  // home's zone as browsers read it
 	HomeCountry string  // where the connection comes out when it's home
+	Elsewhere   bool    // another user's agent keeps the clock
 }
 
 // runAgent keeps the system on the connection's place until ctx ends.
@@ -217,10 +221,22 @@ func (g *agent) reassert() {
 // one already under way: when the tray stops following, and when the agent stops.
 func (g *agent) release() {
 	g.mu.Lock()
-	if g.unsupported == nil {
+	if g.unsupported == nil && !g.clockElsewhere {
 		g.letGoLocked()
 	}
 	r := g.reportLocked("", "")
+	g.mu.Unlock()
+	if g.report != nil {
+		g.report(r)
+	}
+}
+
+// takeClock hands the agent the system's clock, with home as it loaded then, and moves the system
+// where it should be at once.
+func (g *agent) takeClock(h homeState) {
+	g.mu.Lock()
+	g.clockElsewhere, g.h = false, &h
+	r := g.syncLocked()
 	g.mu.Unlock()
 	if g.report != nil {
 		g.report(r)
@@ -246,8 +262,8 @@ func (g *agent) syncLocked() agentReport {
 }
 
 func (g *agent) reportLocked(system, target string) agentReport {
-	r := agentReport{Err: g.lastErr, Wish: g.wish, System: system, Target: target}
-	if g.unsupported != nil {
+	r := agentReport{Err: g.lastErr, Wish: g.wish, System: system, Target: target, Elsewhere: g.clockElsewhere}
+	if g.unsupported != nil || g.clockElsewhere {
 		return r
 	}
 	h := g.homeLocked()
@@ -361,7 +377,7 @@ func (a agentConfig) placeOf(w *wish) string {
 // the real one. With sync off it puts the system back home once, then leaves it alone, but still says
 // when it matches. The caller holds g.mu.
 func (g *agent) settle(found cover, have bool, w *wish) (cover, string, string) {
-	if g.unsupported != nil {
+	if g.unsupported != nil || g.clockElsewhere {
 		return found, "", ""
 	}
 	place := g.placeOf(w)
