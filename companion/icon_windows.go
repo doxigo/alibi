@@ -62,30 +62,38 @@ func drawIcon(text string, v verdict, size int) (bitmap uintptr, pixels []uint32
 
 	old, _, _ := procSelectObject.Call(dc, bitmap)
 	defer procSelectObject.Call(dc, old)
-	// The largest bold Segoe UI that fits, one pixel clear of each side.
+	// The largest bold Segoe UI that fits, one pixel clear of each side. A font is deleted only once
+	// it's out of the DC, as GDI asks: selecting the next one hands back the last.
 	label := utf16Ptr(text)
 	length := uintptr(len([]rune(text)))
-	var font uintptr
+	var font, dcFont uintptr
 	for height := int(float64(size) * 0.72); height >= 6; height-- {
-		if font != 0 {
+		next, _, _ := procCreateFont.Call(uintptr(-int32(height)), 0, 0, 0, fwBold, 0, 0, 0, defaultCharset, 0, 0, antialiasedQuality, 0, uintptr(unsafe.Pointer(utf16Ptr("Segoe UI"))))
+		if next == 0 {
+			break
+		}
+		previous, _, _ := procSelectObject.Call(dc, next)
+		if font == 0 {
+			dcFont = previous // the DC's own, to put back at the end
+		} else {
 			procDeleteObject.Call(font)
 		}
-		font, _, _ = procCreateFont.Call(uintptr(-int32(height)), 0, 0, 0, fwBold, 0, 0, 0, defaultCharset, 0, 0, antialiasedQuality, 0, uintptr(unsafe.Pointer(utf16Ptr("Segoe UI"))))
-		procSelectObject.Call(dc, font)
+		font = next
 		var extent struct{ CX, CY int32 }
 		procGetTextExtent.Call(dc, uintptr(unsafe.Pointer(label)), length, uintptr(unsafe.Pointer(&extent)))
 		if int(extent.CX) <= size-2 {
 			break
 		}
 	}
-	if font != 0 {
-		defer procDeleteObject.Call(font)
-	}
 	procSetBkMode.Call(dc, bkTransparent)
 	procSetTextColor.Call(dc, 0x00ffffff)
 	area := rect{0, 0, int32(size), int32(size)}
 	procDrawText.Call(dc, uintptr(unsafe.Pointer(label)), ^uintptr(0), uintptr(unsafe.Pointer(&area)), dtCenter|dtVCenter|dtSingleLine)
 	procGdiFlush.Call()
+	if font != 0 {
+		procSelectObject.Call(dc, dcFont)
+		procDeleteObject.Call(font)
+	}
 
 	// GDI leaves alpha at zero. Give every pixel the stamp's coverage, premultiplied as Windows wants.
 	for i, p := range pixels {
