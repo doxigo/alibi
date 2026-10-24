@@ -165,6 +165,9 @@ type agent struct {
 type homeState struct {
 	setting
 	Held *setting `json:"held,omitempty"`
+	// What the agent is about to set: written before it calls tzutil, cleared once it has. An agent that
+	// dies in between still knows the change, or the part of it that took, was its own.
+	Pending *setting `json:"pending,omitempty"`
 	// Where the connection comes out at home: home's zone's country when it was first recorded. A zone
 	// you set yourself later doesn't change it. The tray's alerts go by it.
 	Country string `json:"country,omitempty"`
@@ -317,13 +320,22 @@ func (g *agent) saveHomeLocked() {
 
 // noticeLocked takes a setting someone else made as home from now on. What the agent set itself is what
 // it holds, so that doesn't count.
-func (g *agent) noticeLocked() {
+// It returns how the system is set now, and whether it could tell.
+func (g *agent) noticeLocked() (setting, bool) {
 	h := g.homeLocked()
 	now, err := currentSetting(g.sys)
-	if err != nil || h.Held != nil && now == *h.Held || h.Held == nil && now == h.setting {
-		return
+	if err != nil {
+		return setting{}, false
 	}
-	home, held := adopt(h.setting, h.Held, now)
+	home, held, theirs := adopt(h.setting, h.Held, h.Pending, now)
+	if !theirs {
+		// All of it the agent's own, or home's: at most, what it was about to set has taken.
+		if h.Pending != nil || !sameSetting(held, h.Held) {
+			h.Held, h.Pending = held, nil
+			g.saveHomeLocked()
+		}
+		return now, true
+	}
 	g.logf("Windows was set to %s, region %s, by something else, so home is now %s, region %s", now.Zone, now.Region, home.Zone, home.Region)
 	setOn := h.SetOn
 	if g.have && g.found.Country != "" && g.found.Country == g.homeCountryLocked() {
@@ -331,29 +343,33 @@ func (g *agent) noticeLocked() {
 	}
 	*h = homeState{setting: home, Held: held, Country: h.Country, SetOn: setOn, Version: 1}
 	g.saveHomeLocked()
+	return now, true
 }
 
 // adopt takes what someone else changed as home: the zone, the region, or both, wherever it differs
-// from what the agent left (what it held, or home while it held nothing). The part they didn't touch
-// keeps home's: a zone you set while the agent had the region on the VPN's country leaves home's region
-// as it was. It returns the new home, and what the agent still holds, nil when nothing is its own.
-func adopt(home setting, held *setting, now setting) (setting, *setting) {
+// from what the agent left (what it held, or home while it held nothing) and from what it was about to
+// set. The part they didn't touch keeps home's: a zone you set while the agent had the region on the
+// VPN's country leaves home's region as it was. It returns the new home, what the agent still holds
+// (nil when nothing is its own), and whether someone else changed anything at all.
+func adopt(home setting, held, pending *setting, now setting) (setting, *setting, bool) {
 	left := home
 	if held != nil {
 		left = *held
 	}
-	next := home
-	if now.Zone != left.Zone {
-		next.Zone = now.Zone
+	next, theirs := home, false
+	if now.Zone != left.Zone && (pending == nil || now.Zone != pending.Zone) {
+		next.Zone, theirs = now.Zone, true
 	}
-	if now.Region != left.Region {
-		next.Region = now.Region
+	if now.Region != left.Region && (pending == nil || now.Region != pending.Region) {
+		next.Region, theirs = now.Region, true
 	}
-	if held == nil || next == now {
-		return next, nil
+	if next == now {
+		return next, nil, theirs
 	}
-	return next, &now
+	return next, &now, theirs
 }
+
+func sameSetting(a, b *setting) bool { return a == nil && b == nil || a != nil && b != nil && *a == *b }
 
 // sameWindowsZone reports whether two zone names are one Windows zone.
 func (g *agent) sameWindowsZone(a, b string) bool {
@@ -396,10 +412,16 @@ func (g *agent) holdLocked() {
 	if now == h.setting {
 		held = nil
 	}
-	if (held == nil) == (h.Held == nil) && (held == nil || *held == *h.Held) {
+	if sameSetting(held, h.Held) && h.Pending == nil {
 		return
 	}
-	h.Held = held
+	h.Held, h.Pending = held, nil
+	g.saveHomeLocked()
+}
+
+// intendLocked writes down what the agent is about to set, before it sets it.
+func (g *agent) intendLocked(want setting) {
+	g.homeLocked().Pending = &want
 	g.saveHomeLocked()
 }
 
@@ -445,8 +467,10 @@ func (g *agent) settle(found cover, have bool, w *wish) (cover, string, string) 
 	}
 	place := g.placeOf(w)
 	syncing := g.sync == nil || g.sync()
+	var now setting
+	known := false
 	if !g.dryRun {
-		g.noticeLocked()
+		now, known = g.noticeLocked()
 		if !syncing {
 			g.letGoLocked()
 		}
@@ -480,8 +504,11 @@ func (g *agent) settle(found cover, have bool, w *wish) (cover, string, string) 
 	}
 	changed := false
 	if syncing {
+		if !known || now != want {
+			g.intendLocked(want)
+		}
 		changed, err = apply(g.sys, want)
-		if changed {
+		if changed || g.homeLocked().Pending != nil {
 			g.holdLocked() // what it set, even if only part of it took
 		}
 		if err != nil {
@@ -594,10 +621,10 @@ func loadHome(sys zoneSystem, path string) (homeState, error) {
 		if now == h.setting {
 			h.Held = nil
 		}
-	case err == nil && h.Held != nil && *h.Held == now:
 	case err == nil:
-		// Changed while the agent wasn't running: what changed is home now.
-		home, held := adopt(h.setting, h.Held, now)
+		// What the agent left, or was about to set, is still its own; anything else changed while it
+		// wasn't running, and is home now.
+		home, held, _ := adopt(h.setting, h.Held, h.Pending, now)
 		h = homeState{setting: home, Held: held, Country: h.Country, SetOn: h.SetOn}
 	case !errors.Is(err, os.ErrNotExist) && !errors.Is(err, errNoHome):
 		return homeState{}, err
@@ -633,12 +660,17 @@ func restoreHome(sys zoneSystem, path string) (setting, bool, error) {
 	if err != nil {
 		return h.setting, false, err
 	}
-	// An earlier agent held the system for as long as it ran; a later one says what it holds.
-	held := (h.Version == 0 || h.Held != nil && *h.Held == now) && now != h.setting
-	if held {
-		if _, err := apply(sys, h.setting); err != nil {
-			return h.setting, false, err
-		}
+	// What the agent left, or was about to set, goes back to home's; what someone else set since stays.
+	// An earlier agent held the system for as long as it ran.
+	home, held, _ := adopt(h.setting, h.Held, h.Pending, now)
+	if h.Version == 0 {
+		home, held = h.setting, &now
 	}
-	return h.setting, held, os.Remove(path)
+	if held == nil || now == home {
+		return home, false, os.Remove(path)
+	}
+	if _, err := apply(sys, home); err != nil {
+		return home, false, err
+	}
+	return home, true, os.Remove(path)
 }
