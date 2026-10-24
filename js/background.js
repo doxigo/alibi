@@ -1,5 +1,5 @@
 import { applyDebugger, startChild } from './debugger.js'
-import { checkedCover, coverFor, followIp, followsIp, ipCover, isActive, languagesFor, siteKey, userScriptsAvailable } from './sites.js'
+import { checkedCover, coverFor, followIp, followsIp, ipCover, isActive, languagesFor, sameZone, siteKey, userScriptsAvailable } from './sites.js'
 import stealth from './stealth.js'
 
 const KEYS = ['useDebuggerApi', 'configuration', 'timezone', 'locale', 'lat', 'lon', 'sites']
@@ -144,8 +144,8 @@ const deepCover = async (url) => {
   const current = await settings
   if (!current.useDebuggerApi) return null
   const cover = coverFor(siteKey(url ?? '') ?? '', current)
-  // As in Stealth: an IP cover on the Mac's own zone leaves the zone live.
-  return followsIp(cover) && cover.timezone === Intl.DateTimeFormat().resolvedOptions().timeZone ? { ...cover, timezone: null } : cover
+  // As in Stealth: an IP cover on the Mac's own zone leaves the zone live, whichever name each gives it.
+  return followsIp(cover) && sameZone(cover.timezone, Intl.DateTimeFormat().resolvedOptions().timeZone) ? { ...cover, timezone: null } : cover
 }
 const aimTab = async (tabId, url, replacing) => {
   const cover = await deepCover(url)
