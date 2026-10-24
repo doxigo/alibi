@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"sync"
 	"testing"
 	"time"
 )
@@ -358,6 +359,31 @@ func TestDryRunChangesNothing(t *testing.T) {
 	}
 	if _, err := os.Stat(state); !os.IsNotExist(err) {
 		t.Error("dry run wrote its state")
+	}
+}
+
+// The worker runs what it's given in order, and nothing once the agent has stopped: running.Wait
+// returning means no move can still land.
+func TestWorkerStopsWithTheAgent(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	var running sync.WaitGroup
+	later := worker(ctx, &running)
+	done := make(chan int, 3)
+	for i := range 3 {
+		later(func() { done <- i })
+	}
+	for i := range 3 {
+		if got := <-done; got != i {
+			t.Fatalf("job %d ran as %d", i, got)
+		}
+	}
+	cancel()
+	running.Wait()
+	ran := false
+	later(func() { ran = true }) // must neither run nor block
+	time.Sleep(20 * time.Millisecond)
+	if ran {
+		t.Error("a job ran after the agent stopped")
 	}
 }
 

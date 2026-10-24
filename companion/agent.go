@@ -446,6 +446,33 @@ func (g *agent) settle(found cover, have bool, w *wish) (cover, string, string) 
 	return found, reads, expected
 }
 
+// worker runs jobs one at a time, off the caller's thread, until ctx ends, and none after. It counts
+// itself in running, so once running.Wait returns, nothing it does can still land: a time change that
+// arrived as the agent quit can't put the cover back after Quit has put Windows home.
+func worker(ctx context.Context, running *sync.WaitGroup) func(func()) {
+	jobs := make(chan func(), 16)
+	running.Add(1)
+	go func() {
+		defer running.Done()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case job := <-jobs:
+				if ctx.Err() == nil {
+					job()
+				}
+			}
+		}
+	}()
+	return func(job func()) {
+		select {
+		case jobs <- job:
+		case <-ctx.Done(): // stopping: nothing more to do
+		}
+	}
+}
+
 // currentSetting is how the system is set now.
 func currentSetting(sys zoneSystem) (setting, error) {
 	zone, err := sys.zone()
