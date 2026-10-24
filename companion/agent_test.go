@@ -433,7 +433,7 @@ func TestAnAgentWaitsForTheClock(t *testing.T) {
 		t.Errorf("report %+v", r)
 	}
 	f.zoneNow = home.Zone // the other user signed out, and their agent put Windows back
-	h, err := loadHome(f, g.homeFile)
+	h, err := loadHome(f, g.homeFile, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -570,7 +570,7 @@ func TestAZoneYouSetKeepsHomesRegion(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "home.json")
 	saveHome(path, homeState{setting: home, Held: &tajik})
 	f.zoneNow, f.regionNow = "Arabian Standard Time", "TJ"
-	if h, _ := loadHome(f, path); h.setting != (setting{"Arabian Standard Time", "US"}) || h.Held == nil {
+	if h, _ := loadHome(f, path, nil); h.setting != (setting{"Arabian Standard Time", "US"}) || h.Held == nil {
 		t.Errorf("loaded %+v", h)
 	}
 }
@@ -614,13 +614,61 @@ func TestAChangeCutShortIsStillTheAgents(t *testing.T) {
 		saveHome(path, homeState{setting: home, Pending: &tajik})
 		f := atHome()
 		f.zoneNow, f.regionNow = c.now.Zone, c.now.Region
-		h, err := loadHome(f, path)
+		h, err := loadHome(f, path, nil)
 		if err != nil || h.setting != home {
 			t.Errorf("%s: home %+v (err %v), want %v kept", c.name, h, err, home)
 		}
 		if got, restored, _ := restoreHome(f, path); got != home || restored != (c.now != home) || f.zoneNow != home.Zone || f.regionNow != home.Region {
 			t.Errorf("%s: uninstall restored %v %v, Windows %s/%s", c.name, got, restored, f.zoneNow, f.regionNow)
 		}
+	}
+}
+
+// While it holds the clock away from home, the agent leaves a note for other users' agents, and takes
+// it away once it lets go.
+func TestTheAgentLeavesANoteWhileItHoldsTheClock(t *testing.T) {
+	dir := t.TempDir()
+	mine, theirs := fileClockNotes{dir, "me.json"}, fileClockNotes{dir, "them.json"}
+	g, _ := newHomeAgent(t)
+	g.notes = mine
+	g.reassert() // on the VPN's zone
+	notes := theirs.others()
+	if len(notes) != 1 || !slices.Equal(notes[0].Zones, []string{tajik.Zone}) || notes[0].Home != home.Zone {
+		t.Errorf("other agents read %+v", notes)
+	}
+	if len(mine.others()) != 0 {
+		t.Error("an agent reads its own note as another's")
+	}
+	g.finish()
+	if notes := theirs.others(); len(notes) != 0 {
+		t.Errorf("note still there after letting go: %+v", notes)
+	}
+}
+
+// Another user's agent that stopped without letting go left Windows on its VPN's zone. The agent that
+// takes the clock next doesn't take that zone as its user's home, and lets go of it like its own.
+func TestAZoneAnotherAgentLeftIsNotHome(t *testing.T) {
+	left := []clockNote{{Zones: []string{"Tokyo Standard Time"}, Home: home.Zone}}
+	f := atHome()
+	f.zoneNow = "Tokyo Standard Time"
+	first := filepath.Join(t.TempDir(), "home.json")
+	if h, err := loadHome(f, first, left); err != nil || h.setting != home || h.Held == nil || h.Held.Zone != "Tokyo Standard Time" {
+		t.Errorf("first run: %+v (err %v), want the other agent's home, the zone held", h, err)
+	}
+	ran := filepath.Join(t.TempDir(), "home.json")
+	saveHome(ran, homeState{setting: setting{"Arabian Standard Time", "US"}})
+	if h, _ := loadHome(f, ran, left); h.Zone != "Arabian Standard Time" || h.Held == nil {
+		t.Errorf("run before: %+v, want its own home kept", h)
+	}
+	if _, restored, _ := restoreHome(f, ran); !restored || f.zoneNow != "Arabian Standard Time" {
+		t.Errorf("letting go: restored %v, Windows on %s", restored, f.zoneNow)
+	}
+	// Without such a note, a zone found at start is a change of yours, as before.
+	f.zoneNow = "Tokyo Standard Time"
+	none := filepath.Join(t.TempDir(), "home.json")
+	saveHome(none, homeState{setting: home})
+	if h, _ := loadHome(f, none, nil); h.Zone != "Tokyo Standard Time" || h.Held != nil {
+		t.Errorf("no note: %+v", h)
 	}
 }
 
@@ -696,22 +744,22 @@ func TestLettingGoLeavesSomeoneElsesZone(t *testing.T) {
 func TestLoadHome(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "home.json")
 	f := atHome()
-	if h, err := loadHome(f, path); err != nil || h.setting != home || h.Held != nil {
+	if h, err := loadHome(f, path, nil); err != nil || h.setting != home || h.Held != nil {
 		t.Fatalf("first run: %+v %v", h, err)
 	}
 	saveHome(path, homeState{setting: home, Held: &tajik})
 	f.zoneNow, f.regionNow = tajik.Zone, tajik.Region // still where the agent left it
-	if h, _ := loadHome(f, path); h.setting != home || h.Held == nil || *h.Held != tajik {
+	if h, _ := loadHome(f, path, nil); h.setting != home || h.Held == nil || *h.Held != tajik {
 		t.Errorf("still held: %+v", h)
 	}
 	f.zoneNow = "Arabian Standard Time" // changed while the agent wasn't running; the region is still its
-	if h, _ := loadHome(f, path); h.Zone != "Arabian Standard Time" || h.Region != "US" || h.Held == nil || h.Held.Region != "TJ" {
+	if h, _ := loadHome(f, path, nil); h.Zone != "Arabian Standard Time" || h.Region != "US" || h.Held == nil || h.Held.Region != "TJ" {
 		t.Errorf("changed meanwhile: %+v", h)
 	}
 	// An earlier agent recorded home once and held Windows from then on.
 	os.WriteFile(path, []byte(`{"zone":"Iran Standard Time","region":"US"}`), 0o644)
 	f.zoneNow, f.regionNow = tajik.Zone, tajik.Region
-	if h, _ := loadHome(f, path); h.setting != home || h.Held == nil || *h.Held != tajik || h.Version != 1 {
+	if h, _ := loadHome(f, path, nil); h.setting != home || h.Held == nil || *h.Held != tajik || h.Version != 1 {
 		t.Errorf("earlier home.json: %+v", h)
 	}
 }

@@ -17,6 +17,7 @@ func consoleAsk() func(string) bool               { return nil }
 func handOffUninstall(system, bool) (bool, error) { return false, nil }
 func waitForExit(int)                             {}
 func systemZones() zoneSystem                     { return nil }
+func clockNotesHere() clockNotes                  { return nil }
 func autoTimeZone() bool                          { return false }
 
 func agentCommand(system, []string, io.Writer) error { return errNoAgent }
