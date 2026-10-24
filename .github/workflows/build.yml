@@ -38,9 +38,10 @@ jobs:
         if: runner.os == 'Linux'
         run: git diff --exit-code -- css/ || { echo "::error::css/style.css is stale; run yarn build:css and commit it"; exit 1; }
       # The unpacked extension, ready for "Load unpacked". GitHub wraps every download in a zip;
-      # the store zip is a separate thing (yarn build:store) and isn't uploaded here.
+      # the store zip is a separate thing (yarn build:store) and isn't uploaded here. Like the companion,
+      # it's kept only from pushes and manual runs, never from someone's pull request.
       - uses: actions/upload-artifact@v7
-        if: runner.os == 'Linux'
+        if: runner.os == 'Linux' && github.event_name != 'pull_request'
         with:
           name: alibi-extension
           path: build/
