@@ -12,6 +12,7 @@ import (
 	"math"
 	"net"
 	"net/http"
+	neturl "net/url"
 	"os"
 	"regexp"
 	"strconv"
@@ -55,10 +56,29 @@ type geoJS struct {
 func newGeoJS() *geoJS {
 	url, atURL := geoJSURL, geoJSAtURL
 	// For tests: points the lookup at a stand-in server.
-	if override := os.Getenv("ALIBI_COMPANION_GEOJS_URL"); override != "" {
+	if override, ok := geoJSOverride(os.Getenv("ALIBI_COMPANION_GEOJS_URL")); ok {
 		url, atURL = override, override+"?ip=%s"
 	}
 	return &geoJS{url: url, atURL: atURL, client: freshClient("tcp"), ipv6: freshClient("tcp6")}
+}
+
+// geoJSOverride takes a stand-in for GeoJS only over HTTPS, or over plain HTTP to this computer (a
+// test's own server), so a variable left set can't send lookups anywhere in the clear.
+func geoJSOverride(raw string) (string, bool) {
+	u, err := neturl.Parse(raw)
+	if err != nil || u.Host == "" {
+		return "", false
+	}
+	switch u.Scheme {
+	case "https":
+		return raw, true
+	case "http":
+		host := u.Hostname()
+		if ip := net.ParseIP(host); host == "localhost" || ip != nil && ip.IsLoopback() {
+			return raw, true
+		}
+	}
+	return "", false
 }
 
 // freshClient opens a new connection for every request, so each answer comes over the route the
