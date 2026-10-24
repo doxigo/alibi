@@ -547,16 +547,16 @@ func TestAZoneYouSetOnAVPNBecomesHome(t *testing.T) {
 // You change only the time zone while the agent has the region on the VPN's country: home takes your
 // zone and keeps its own region, and letting go puts that region back.
 func TestAZoneYouSetKeepsHomesRegion(t *testing.T) {
-	if got, held := adopt(home, &tajik, setting{"Arabian Standard Time", "TJ"}); got != (setting{"Arabian Standard Time", "US"}) || held == nil || *held != (setting{"Arabian Standard Time", "TJ"}) {
+	if got, held, _ := adopt(home, &tajik, nil, setting{"Arabian Standard Time", "TJ"}); got != (setting{"Arabian Standard Time", "US"}) || held == nil || *held != (setting{"Arabian Standard Time", "TJ"}) {
 		t.Errorf("zone changed: home %v, held %v", got, held)
 	}
-	if got, held := adopt(home, &tajik, setting{tajik.Zone, "DE"}); got != (setting{home.Zone, "DE"}) || held == nil {
+	if got, held, _ := adopt(home, &tajik, nil, setting{tajik.Zone, "DE"}); got != (setting{home.Zone, "DE"}) || held == nil {
 		t.Errorf("region changed: home %v, held %v", got, held)
 	}
-	if got, held := adopt(home, &tajik, setting{"Arabian Standard Time", "DE"}); got != (setting{"Arabian Standard Time", "DE"}) || held != nil {
+	if got, held, _ := adopt(home, &tajik, nil, setting{"Arabian Standard Time", "DE"}); got != (setting{"Arabian Standard Time", "DE"}) || held != nil {
 		t.Errorf("both changed: home %v, held %v", got, held)
 	}
-	if got, held := adopt(home, nil, setting{"Arabian Standard Time", "US"}); got != (setting{"Arabian Standard Time", "US"}) || held != nil {
+	if got, held, _ := adopt(home, nil, nil, setting{"Arabian Standard Time", "US"}); got != (setting{"Arabian Standard Time", "US"}) || held != nil {
 		t.Errorf("nothing held: home %v, held %v", got, held)
 	}
 	g, f := newHomeAgent(t)
@@ -572,6 +572,55 @@ func TestAZoneYouSetKeepsHomesRegion(t *testing.T) {
 	f.zoneNow, f.regionNow = "Arabian Standard Time", "TJ"
 	if h, _ := loadHome(f, path); h.setting != (setting{"Arabian Standard Time", "US"}) || h.Held == nil {
 		t.Errorf("loaded %+v", h)
+	}
+}
+
+// pendingZones writes down, at each tzutil call, what home.json said the agent was about to set.
+type pendingZones struct {
+	*fakeZones
+	path string
+	seen []*setting
+}
+
+func (p *pendingZones) setZone(id string) error {
+	h, _ := readHome(p.path)
+	p.seen = append(p.seen, h.Pending)
+	return p.fakeZones.setZone(id)
+}
+
+// The agent writes down what it's about to set before tzutil runs. An agent that died right after,
+// or halfway (the region set, not yet the zone), still knows it was its own doing next time it starts,
+// and home stays home.
+func TestAChangeCutShortIsStillTheAgents(t *testing.T) {
+	g, f := newHomeAgent(t)
+	p := &pendingZones{fakeZones: f, path: g.homeFile}
+	g.sys = p
+	g.reassert()
+	if len(p.seen) != 1 || p.seen[0] == nil || *p.seen[0] != tajik {
+		t.Errorf("home.json said it was about to set %v at tzutil", p.seen)
+	}
+	if h := readHomeFile(t, g.homeFile); h.Pending != nil || h.Held == nil || *h.Held != tajik {
+		t.Errorf("after the change, home.json %+v", h)
+	}
+	for _, c := range []struct {
+		name string
+		now  setting
+	}{
+		{"died after tzutil", tajik},
+		{"died halfway", setting{home.Zone, tajik.Region}},
+		{"died before tzutil", home},
+	} {
+		path := filepath.Join(t.TempDir(), "home.json")
+		saveHome(path, homeState{setting: home, Pending: &tajik})
+		f := atHome()
+		f.zoneNow, f.regionNow = c.now.Zone, c.now.Region
+		h, err := loadHome(f, path)
+		if err != nil || h.setting != home {
+			t.Errorf("%s: home %+v (err %v), want %v kept", c.name, h, err, home)
+		}
+		if got, restored, _ := restoreHome(f, path); got != home || restored != (c.now != home) || f.zoneNow != home.Zone || f.regionNow != home.Region {
+			t.Errorf("%s: uninstall restored %v %v, Windows %s/%s", c.name, got, restored, f.zoneNow, f.regionNow)
+		}
 	}
 }
 
