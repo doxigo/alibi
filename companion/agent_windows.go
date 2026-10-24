@@ -241,7 +241,8 @@ func agentCommand(sys system, options []string, stderr io.Writer) error {
 			return err
 		}
 		w, _ := readWish(l.agent.wanted) // Alibi's last word, if it has said
-		agentConfig{sys: sys.zones, home: home, dryRun: true, logf: logger.Printf}.settle(place, true, w)
+		follows := loadSettings(l.agent.settings).FollowAlibi
+		agentConfig{sys: sys.zones, home: home, dryRun: true, logf: logger.Printf, followAlibi: func() bool { return follows }}.settle(place, true, w)
 		return nil
 	}
 
@@ -317,7 +318,7 @@ func agentCommand(sys system, options []string, stderr io.Writer) error {
 	watch := defaultWatch(geo.lookup, logger.Printf)
 	watch.nudge = tray.nudge
 	follower := &agent{agentConfig: agentConfig{
-		watch: watch, sys: sys.zones, home: home, state: l.agent.state, logf: logger.Printf, sync: tray.syncOn,
+		watch: watch, sys: sys.zones, home: home, state: l.agent.state, logf: logger.Printf, sync: tray.syncOn, followAlibi: tray.followAlibiOn,
 		report: func(r agentReport) {
 			if tray.report(r) {
 				select {

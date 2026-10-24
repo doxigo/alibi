@@ -180,7 +180,7 @@ func TestWindowsInstallSetsUpTheTrayApp(t *testing.T) {
 	if len(w.zones.calls) > 0 {
 		t.Errorf("install itself changed the time zone: %v (that's the agent's job)", w.zones.calls)
 	}
-	for _, want := range []string{"runs in the tray", "Windows follows Alibi's location", "Iran Standard Time, region US"} {
+	for _, want := range []string{"runs in the tray", "Windows follows your VPN's time zone", "Iran Standard Time, region US"} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("output lacks %q:\n%s", want, out.String())
 		}
@@ -228,7 +228,7 @@ func TestWindowsInstallWithoutTimeZoneSync(t *testing.T) {
 	if _, err := os.Stat(w.l.agent.home); err != nil {
 		t.Error("home.json gone: turning sync on again later would lose the real home")
 	}
-	if !strings.Contains(out.String(), "Windows doesn't follow Alibi: it stays on Iran Standard Time, region US") {
+	if !strings.Contains(out.String(), "Windows doesn't follow your VPN: it stays on Iran Standard Time, region US") {
 		t.Errorf("output: %s", out.String())
 	}
 }
@@ -247,7 +247,7 @@ func TestWindowsUpdateKeepsFollowingOff(t *testing.T) {
 	if loadSettings(w.l.agent.settings).Sync {
 		t.Error("an update turned following back on")
 	}
-	if !strings.Contains(out.String(), "Windows doesn't follow Alibi") {
+	if !strings.Contains(out.String(), "Windows doesn't follow your VPN") {
 		t.Errorf("output: %s", out.String())
 	}
 }

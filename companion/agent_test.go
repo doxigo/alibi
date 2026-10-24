@@ -206,7 +206,8 @@ func newAgent(t *testing.T) (*agent, *fakeZones, *[]agentReport) {
 	g := &agent{agentConfig: agentConfig{
 		watch: watchConfig{lookup: lookup, fingerprint: func() string { return "" }, logf: t.Logf, poll: time.Hour, watch: time.Hour},
 		sys:   f, home: home, state: filepath.Join(t.TempDir(), "agent.json"), logf: t.Logf,
-		report: func(r agentReport) { reports = append(reports, r) },
+		report:      func(r agentReport) { reports = append(reports, r) },
+		followAlibi: func() bool { return true },
 	}}
 	return g, f, &reports
 }
@@ -219,7 +220,8 @@ func readState(t *testing.T, path string) agentState {
 	return state
 }
 
-// Every location chosen in Alibi moves the system's clock, at once, before any look at the network.
+// With Follow Alibi's location on, every place chosen in Alibi for all sites moves the system's clock,
+// at once, before any look at the network.
 func TestAlibisLocationMovesWindows(t *testing.T) {
 	g, f, reports := newAgent(t)
 	g.setWish(&wish{Configuration: "tokyo", Timezone: "Asia/Tokyo"})
@@ -243,10 +245,35 @@ func TestAlibisLocationMovesWindows(t *testing.T) {
 	if len(f.calls) > 0 {
 		t.Errorf("the same cover again changed %v", f.calls)
 	}
-	// Off: back home, exactly as it was.
+	// Off asks nothing of the system: it follows the connection, as it does without Alibi.
+	g.found, g.have = exit("Asia/Dushanbe", "TJ"), true
 	g.setWish(&wish{Configuration: "browserDefault"})
-	if f.zoneNow != home.Zone || f.regionNow != home.Region || readState(t, g.state).System != "Asia/Tehran" {
-		t.Errorf("off: Windows on %s/%s", f.zoneNow, f.regionNow)
+	if f.zoneNow != "West Asia Standard Time" || f.regionNow != "TJ" || readState(t, g.state).System != "Asia/Dushanbe" {
+		t.Errorf("off: Windows on %s/%s, not the connection's zone", f.zoneNow, f.regionNow)
+	}
+}
+
+// Off before the first answer about the connection: nothing to aim at yet, so Windows stays put.
+func TestAlibiOffBeforeTheFirstLookChangesNothing(t *testing.T) {
+	g, f, _ := newAgent(t)
+	g.setWish(&wish{Configuration: "browserDefault"})
+	if len(f.calls) > 0 {
+		t.Errorf("Off moved Windows before the connection was known: %v", f.calls)
+	}
+}
+
+// Follow Alibi's location is off by default: a place for all sites stays in the browser, and Windows
+// keeps following the connection.
+func TestAlibisLocationNeedsFollowAlibi(t *testing.T) {
+	if defaultSettings().FollowAlibi || loadSettings(filepath.Join(t.TempDir(), "settings.json")).FollowAlibi {
+		t.Error("Follow Alibi's location is on by default")
+	}
+	g, f, _ := newAgent(t)
+	g.followAlibi = func() bool { return false }
+	g.found, g.have = exit("Asia/Dushanbe", "TJ"), true
+	g.setWish(&wish{Configuration: "tokyo", Timezone: "Asia/Tokyo"})
+	if f.zoneNow != "West Asia Standard Time" || f.regionNow != "TJ" {
+		t.Errorf("Windows on %s/%s, want the connection's zone", f.zoneNow, f.regionNow)
 	}
 }
 

@@ -256,7 +256,8 @@ func setUpAgent(sys system, l layout, out io.Writer, timezone bool) error {
 
 	fmt.Fprintln(out, "\nAlibi Companion now runs in the tray, and starts every time you sign in.")
 	if timezone {
-		fmt.Fprintln(out, "Windows follows Alibi's location: the city or zone you choose for all sites, or your VPN's.")
+		fmt.Fprintln(out, "Windows follows your VPN's time zone. To have it follow a place you choose in Alibi for all sites")
+		fmt.Fprintln(out, "instead, turn on \"Follow Alibi's location\" in the tray.")
 		fmt.Fprintf(out, "Quitting or uninstalling puts it back to %s, region %s.\n", home.Zone, home.Region)
 		// Windows' own "Set time zone automatically" would move it back to where you really are.
 		if sys.autoTZ != nil && sys.autoTZ.on() {
@@ -273,7 +274,7 @@ func setUpAgent(sys system, l layout, out io.Writer, timezone bool) error {
 			}
 		}
 	} else {
-		fmt.Fprintf(out, "Windows doesn't follow Alibi: it stays on %s, region %s. Turn it on from the tray.\n", home.Zone, home.Region)
+		fmt.Fprintf(out, "Windows doesn't follow your VPN: it stays on %s, region %s. Turn it on from the tray.\n", home.Zone, home.Region)
 	}
 	if err := sys.agent.start(l.agent.exe); err != nil {
 		return fmt.Errorf("couldn't start Alibi Companion: %w", err)
