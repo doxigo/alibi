@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -103,6 +102,17 @@ func windowsSystem(t *testing.T, self string) *windowsTest {
 	return w
 }
 
+// agentMoved sets Windows the way a running agent does, and records it in home.json as the agent
+// would: home is how Windows was set, and the agent holds it on to.
+func (w *windowsTest) agentMoved(t *testing.T, to setting) {
+	t.Helper()
+	before := setting{w.zones.zoneNow, w.zones.regionNow}
+	if err := saveHome(w.l.agent.home, homeState{setting: before, Held: &to}); err != nil {
+		t.Fatal(err)
+	}
+	w.zones.zoneNow, w.zones.regionNow = to.Zone, to.Region
+}
+
 // answering makes the console answer every question with yes or no, and records them.
 func (w *windowsTest) answering(yes bool) {
 	w.sys.ask = func(q string) bool {
@@ -142,8 +152,8 @@ func TestWindowsInstall(t *testing.T) {
 	}
 }
 
-// Install sets up the tray app: its program, a record of home, settings, sign-in, Settings > Apps,
-// and a start now, with time zone sync on.
+// Install sets up the tray app: its program, settings, sign-in, Settings > Apps, and a start now,
+// with time zone sync on. It leaves the time zone, and home, to the agent.
 func TestWindowsInstallSetsUpTheTrayApp(t *testing.T) {
 	w := windowsSystem(t, fakeDownload(t, "program 1"))
 	var out bytes.Buffer
@@ -169,10 +179,8 @@ func TestWindowsInstallSetsUpTheTrayApp(t *testing.T) {
 	if len(w.agent.started) != 1 || w.agent.started[0] != w.l.agent.exe {
 		t.Errorf("started %v", w.agent.started)
 	}
-	var recorded setting
-	b, _ := os.ReadFile(w.l.agent.home)
-	if json.Unmarshal(b, &recorded) != nil || recorded != home {
-		t.Errorf("home.json %s, want %v", b, home)
+	if _, err := os.Stat(w.l.agent.home); !os.IsNotExist(err) {
+		t.Error("install recorded home: only the agent holding the clock does that")
 	}
 	if !loadSettings(w.l.agent.settings).Sync {
 		t.Error("time zone sync off after a plain install")
@@ -186,8 +194,8 @@ func TestWindowsInstallSetsUpTheTrayApp(t *testing.T) {
 		}
 	}
 
-	// An update stops the running app before replacing it, and keeps the first home and the settings.
-	w.zones.zoneNow, w.zones.regionNow = "W. Europe Standard Time", "NO" // where the agent moved Windows
+	// An update stops the running app before replacing it, and keeps home and the settings.
+	w.agentMoved(t, setting{"W. Europe Standard Time", "NO"})
 	s := loadSettings(w.l.agent.settings)
 	s.Sound = false
 	saveSettings(w.l.agent.settings, s)
@@ -198,20 +206,21 @@ func TestWindowsInstallSetsUpTheTrayApp(t *testing.T) {
 	if w.agent.stops != 2 || len(w.agent.started) != 2 || !w.agent.on {
 		t.Errorf("update: %d stops, %d starts, running %v", w.agent.stops, len(w.agent.started), w.agent.on)
 	}
-	b, _ = os.ReadFile(w.l.agent.home)
-	if json.Unmarshal(b, &recorded) != nil || recorded != home {
-		t.Errorf("after the update, home.json %s, want the first home %v", b, home)
+	if h, err := readHome(w.l.agent.home); err != nil || h.setting != home || h.Held == nil {
+		t.Errorf("after the update, home.json %+v %v, want home %v, still held", h, err, home)
 	}
 	if loadSettings(w.l.agent.settings).Sound {
 		t.Error("the update reset the settings")
 	}
 }
 
-// Without time zone sync the tray app still runs; Windows goes back, and home stays recorded for later.
+// Without time zone sync the tray app still runs. Install itself changes nothing: the agent puts
+// Windows back home as it starts (TestAnAgentStartingWithFollowingOffLetsGo), and home stays recorded.
 func TestWindowsInstallWithoutTimeZoneSync(t *testing.T) {
 	w := windowsSystem(t, fakeDownload(t, "program 1"))
 	install(w.sys, &bytes.Buffer{}, false, true)
-	w.zones.zoneNow, w.zones.regionNow = "W. Europe Standard Time", "NO"
+	w.agentMoved(t, setting{"W. Europe Standard Time", "NO"})
+	w.zones.calls = nil
 	var out bytes.Buffer
 	if err := install(w.sys, &out, false, false); err != nil {
 		t.Fatal(err)
@@ -222,13 +231,13 @@ func TestWindowsInstallWithoutTimeZoneSync(t *testing.T) {
 	if !w.agent.on {
 		t.Error("the tray app isn't running")
 	}
-	if w.zones.zoneNow != home.Zone || w.zones.regionNow != home.Region {
-		t.Errorf("Windows left on %s/%s", w.zones.zoneNow, w.zones.regionNow)
+	if len(w.zones.calls) > 0 {
+		t.Errorf("install changed the time zone: %v", w.zones.calls)
 	}
 	if _, err := os.Stat(w.l.agent.home); err != nil {
 		t.Error("home.json gone: turning sync on again later would lose the real home")
 	}
-	if !strings.Contains(out.String(), "Windows doesn't follow your VPN: it stays on Iran Standard Time, region US") {
+	if !strings.Contains(out.String(), "Windows doesn't follow your VPN: it goes back to Iran Standard Time, region US") {
 		t.Errorf("output: %s", out.String())
 	}
 }
@@ -327,7 +336,7 @@ func TestWindowsUninstall(t *testing.T) {
 	if err := install(w.sys, &bytes.Buffer{}, false, true); err != nil {
 		t.Fatal(err)
 	}
-	w.zones.zoneNow, w.zones.regionNow = "West Asia Standard Time", "TJ" // where the agent moved Windows
+	w.agentMoved(t, setting{"West Asia Standard Time", "TJ"})
 	edge := `Software\Microsoft\Edge\NativeMessagingHosts\` + hostName
 	w.reg.setValue(edge, "", `C:\Other\host.json`) // someone else's since
 	var out bytes.Buffer
@@ -374,20 +383,21 @@ func TestWindowsStatus(t *testing.T) {
 	w := windowsSystem(t, fakeDownload(t, "program 1"))
 	var before bytes.Buffer
 	status(w.sys, &before, fakeLookup)
-	for _, want := range []string{"Not installed", "not registered", "Tray app: not set up", "Follows Alibi's location: off"} {
+	for _, want := range []string{"Not installed", "not registered", "Tray app: not set up", "Keeps Windows on your VPN's time zone: off", "Follows Alibi's location: off"} {
 		if !strings.Contains(before.String(), want) {
 			t.Errorf("before install lacks %q:\n%s", want, before.String())
 		}
 	}
 	install(w.sys, &bytes.Buffer{}, false, true)
-	w.zones.zoneNow, w.zones.regionNow = "W. Europe Standard Time", "NO"
+	w.agentMoved(t, setting{"W. Europe Standard Time", "NO"})
 	var after bytes.Buffer
 	status(w.sys, &after, fakeLookup)
 	for _, want := range []string{
 		"Tray app: running",
-		"Follows Alibi's location: on",
+		"Keeps Windows on your VPN's time zone: on",
+		"Follows Alibi's location: off",
 		"Windows now:  W. Europe Standard Time, region NO, which browsers read as Europe/Oslo",
-		"Before sync:  Iran Standard Time, region US",
+		"Home:         Iran Standard Time, region US",
 		"Asia/Tokyo (ja-JP, 35.6895, 139.6917)",
 	} {
 		if !strings.Contains(after.String(), want) {

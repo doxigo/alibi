@@ -134,14 +134,14 @@ func TestApplyChangesOnlyWhatDiffers(t *testing.T) {
 }
 
 // settleExit settles on a connection's place before Alibi has said anything: following the exit.
-func (a agentConfig) settleExit(place cover) cover {
-	settled, _, _ := a.settle(place, true, nil)
+func (g *agent) settleExit(place cover) cover {
+	settled, _, _ := g.settle(place, true, nil)
 	return settled
 }
 
 func TestSettleReportsTheZoneAsBrowsersReadIt(t *testing.T) {
 	f := atHome()
-	a := agentConfig{sys: f, home: home, logf: t.Logf}
+	a := &agent{agentConfig: agentConfig{sys: f, home: home, logf: t.Logf}}
 	if got := a.settleExit(exit("Europe/Oslo", "NO")); got.Timezone != "Europe/Oslo" || f.zoneNow != "W. Europe Standard Time" || f.regionNow != "NO" {
 		t.Errorf("Norway: reported %s, Windows %s/%s", got.Timezone, f.zoneNow, f.regionNow)
 	}
@@ -159,15 +159,15 @@ func TestSettleReportsTheZoneAsBrowsersReadIt(t *testing.T) {
 func TestSettleKeepsGeoJSZoneWhenWindowsDoesNotFollow(t *testing.T) {
 	reverted := atHome()
 	reverted.readsAs = "Asia/Tehran" // "Set time zone automatically" put it back
-	if got := (agentConfig{sys: reverted, home: home, logf: t.Logf}).settleExit(exit("America/Detroit", "US")); got.Timezone != "America/Detroit" {
+	if got := (&agent{agentConfig: agentConfig{sys: reverted, home: home, logf: t.Logf}}).settleExit(exit("America/Detroit", "US")); got.Timezone != "America/Detroit" {
 		t.Errorf("reverted: reported %s, want GeoJS's America/Detroit", got.Timezone)
 	}
 	denied := atHome()
 	denied.failSet = true
-	if got := (agentConfig{sys: denied, home: home, logf: t.Logf}).settleExit(exit("Europe/Oslo", "NO")); got.Timezone != "Europe/Oslo" {
+	if got := (&agent{agentConfig: agentConfig{sys: denied, home: home, logf: t.Logf}}).settleExit(exit("Europe/Oslo", "NO")); got.Timezone != "Europe/Oslo" {
 		t.Errorf("denied: reported %s", got.Timezone)
 	}
-	if got := (agentConfig{sys: atHome(), home: home, logf: t.Logf}).settleExit(exit("Mars/Olympus", "MA")); got.Timezone != "Mars/Olympus" {
+	if got := (&agent{agentConfig: agentConfig{sys: atHome(), home: home, logf: t.Logf}}).settleExit(exit("Mars/Olympus", "MA")); got.Timezone != "Mars/Olympus" {
 		t.Errorf("unknown zone: reported %s", got.Timezone)
 	}
 }
@@ -361,24 +361,167 @@ func TestDryRunChangesNothing(t *testing.T) {
 	}
 }
 
-func TestHomeIsRecordedOnceAndRestored(t *testing.T) {
-	f := atHome()
+// newHomeAgent is newAgent keeping home.json, with its connection already known to be in Tajikistan.
+func newHomeAgent(t *testing.T) (*agent, *fakeZones) {
+	g, f, _ := newAgent(t)
+	g.homeFile = filepath.Join(t.TempDir(), "home.json")
+	g.found, g.have = exit("Asia/Dushanbe", "TJ"), true
+	return g, f
+}
+
+func readHomeFile(t *testing.T, path string) homeState {
+	t.Helper()
+	h, err := readHome(path)
+	if err != nil {
+		t.Fatalf("home.json: %v", err)
+	}
+	return h
+}
+
+var tajik = setting{"West Asia Standard Time", "TJ"}
+
+// What the agent sets is what it holds: its own change, and the time zone change Windows announces
+// for it, never become home.
+func TestTheAgentsOwnChangeIsNotHome(t *testing.T) {
+	g, f := newHomeAgent(t)
+	g.reassert()
+	g.reassert() // as WM_TIMECHANGE does, after the agent's own change
+	if f.zoneNow != tajik.Zone || f.regionNow != tajik.Region {
+		t.Fatalf("Windows on %s/%s", f.zoneNow, f.regionNow)
+	}
+	h := readHomeFile(t, g.homeFile)
+	if h.setting != home || h.Held == nil || *h.Held != tajik {
+		t.Errorf("home.json %+v, want home %v holding %v", h, home, tajik)
+	}
+}
+
+// You set a zone yourself while the connection comes out at home: that's home now, and it stays.
+func TestAZoneYouSetAtHomeStays(t *testing.T) {
+	g, f := newHomeAgent(t)
+	g.found = exit("Asia/Tehran", "IR") // at home, no VPN
+	g.reassert()
+	if len(f.calls) > 0 {
+		t.Fatalf("at home, changed %v", f.calls)
+	}
+	f.zoneNow = "Arabian Standard Time" // back from a trip, say: you set it in Settings
+	g.reassert()
+	if f.zoneNow != "Arabian Standard Time" {
+		t.Errorf("your zone was put back to %s", f.zoneNow)
+	}
+	if h := readHomeFile(t, g.homeFile); h.Zone != "Arabian Standard Time" || h.Region != "US" || h.Held != nil {
+		t.Errorf("home.json %+v, want your zone as home", h)
+	}
+}
+
+// You set a zone yourself while on a VPN: that's home now, and the VPN's zone goes back on.
+func TestAZoneYouSetOnAVPNBecomesHome(t *testing.T) {
+	g, f := newHomeAgent(t)
+	g.reassert() // on the VPN's zone
+	f.zoneNow = "Arabian Standard Time"
+	g.reassert()
+	if f.zoneNow != tajik.Zone {
+		t.Errorf("Windows on %s, want the VPN's zone back", f.zoneNow)
+	}
+	h := readHomeFile(t, g.homeFile)
+	if h.Zone != "Arabian Standard Time" || h.Held == nil || *h.Held != tajik {
+		t.Errorf("home.json %+v", h)
+	}
+	// Uninstalling, or quitting, now puts Windows back on the new home.
+	if got, restored, err := restoreHome(f, g.homeFile); err != nil || !restored || got.Zone != "Arabian Standard Time" || f.zoneNow != "Arabian Standard Time" {
+		t.Errorf("restore: %v %v %v, Windows on %s", got, restored, err, f.zoneNow)
+	}
+}
+
+// Switching following off puts Windows back home once, then leaves it alone: a zone you set after
+// that isn't undone, and becomes home.
+func TestFollowingOffLetsGoOnce(t *testing.T) {
+	g, f := newHomeAgent(t)
+	g.reassert()
+	g.sync = func() bool { return false }
+	g.release()
+	if f.zoneNow != home.Zone || f.regionNow != home.Region {
+		t.Fatalf("Windows on %s/%s, want home", f.zoneNow, f.regionNow)
+	}
+	f.zoneNow = "Arabian Standard Time"
+	g.reassert()
+	g.setWish(&wish{Configuration: "tokyo", Timezone: "Asia/Tokyo"})
+	if f.zoneNow != "Arabian Standard Time" {
+		t.Errorf("with following off, Windows was moved to %s", f.zoneNow)
+	}
+	if h := readHomeFile(t, g.homeFile); h.Zone != "Arabian Standard Time" || h.Held != nil {
+		t.Errorf("home.json %+v", h)
+	}
+}
+
+// An agent that starts with following off, still holding what it set before, lets go of it once.
+func TestAnAgentStartingWithFollowingOffLetsGo(t *testing.T) {
+	g, f := newHomeAgent(t)
+	f.zoneNow, f.regionNow = tajik.Zone, tajik.Region
+	g.held = &tajik
+	g.sync = func() bool { return false }
+	g.reassert()
+	if f.zoneNow != home.Zone || f.regionNow != home.Region {
+		t.Errorf("Windows on %s/%s, want home", f.zoneNow, f.regionNow)
+	}
+}
+
+// Letting go leaves a zone someone else set since the agent's change alone: that's home now.
+func TestLettingGoLeavesSomeoneElsesZone(t *testing.T) {
+	g, f := newHomeAgent(t)
+	g.reassert()
+	f.zoneNow = "Arabian Standard Time" // Windows' automatic time zone, say
+	g.release()
+	if f.zoneNow != "Arabian Standard Time" {
+		t.Errorf("Windows on %s", f.zoneNow)
+	}
+	if h := readHomeFile(t, g.homeFile); h.Zone != "Arabian Standard Time" || h.Held != nil {
+		t.Errorf("home.json %+v", h)
+	}
+}
+
+// As the agent starts: home stays recorded while Windows is still where the agent left it; otherwise
+// how Windows is set now is home.
+func TestLoadHome(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "home.json")
-	if got, err := loadHome(f, path); err != nil || got != home {
-		t.Fatalf("first: %v %v", got, err)
+	f := atHome()
+	if h, err := loadHome(f, path); err != nil || h.setting != home || h.Held != nil {
+		t.Fatalf("first run: %+v %v", h, err)
 	}
-	apply(f, setting{"W. Europe Standard Time", "NO"})
-	if got, _ := loadHome(f, path); got != home {
-		t.Errorf("after a change, home = %v, want the first one recorded", got)
+	saveHome(path, homeState{setting: home, Held: &tajik})
+	f.zoneNow, f.regionNow = tajik.Zone, tajik.Region // still where the agent left it
+	if h, _ := loadHome(f, path); h.setting != home || h.Held == nil || *h.Held != tajik {
+		t.Errorf("still held: %+v", h)
 	}
-	got, restored, err := restoreHome(f, path)
-	if err != nil || !restored || got != home || f.zoneNow != home.Zone || f.regionNow != home.Region {
-		t.Errorf("restore: %v %v %v, Windows %s/%s", got, restored, err, f.zoneNow, f.regionNow)
+	f.zoneNow = "Arabian Standard Time" // changed while the agent wasn't running
+	if h, _ := loadHome(f, path); h.Zone != "Arabian Standard Time" || h.Region != "TJ" || h.Held != nil {
+		t.Errorf("changed meanwhile: %+v", h)
+	}
+	// An earlier agent recorded home once and held Windows from then on.
+	os.WriteFile(path, []byte(`{"zone":"Iran Standard Time","region":"US"}`), 0o644)
+	f.zoneNow, f.regionNow = tajik.Zone, tajik.Region
+	if h, _ := loadHome(f, path); h.setting != home || h.Held == nil || *h.Held != tajik || h.Version != 1 {
+		t.Errorf("earlier home.json: %+v", h)
+	}
+}
+
+// Uninstalling puts Windows back home only if it's still where the agent left it.
+func TestRestoreHome(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "home.json")
+	f := atHome()
+	f.zoneNow, f.regionNow = tajik.Zone, tajik.Region
+	saveHome(path, homeState{setting: home, Held: &tajik})
+	if got, restored, err := restoreHome(f, path); err != nil || !restored || got != home || f.zoneNow != home.Zone || f.regionNow != home.Region {
+		t.Errorf("held: %v %v %v, Windows %s/%s", got, restored, err, f.zoneNow, f.regionNow)
 	}
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
 		t.Error("home.json still there after restoring")
 	}
 	if _, restored, err := restoreHome(f, path); restored || err != nil {
 		t.Errorf("second restore: %v %v", restored, err)
+	}
+	f.zoneNow = "Arabian Standard Time" // yours since
+	saveHome(path, homeState{setting: home, Held: &tajik})
+	if _, restored, _ := restoreHome(f, path); restored || f.zoneNow != "Arabian Standard Time" {
+		t.Errorf("undid a zone set since: restored %v, Windows on %s", restored, f.zoneNow)
 	}
 }
