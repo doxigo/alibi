@@ -487,7 +487,9 @@ func TestAnExitInAnotherZoneAtHomeStillMoves(t *testing.T) {
 	f.zoneNow, f.regionNow = "Eastern Standard Time", "US"
 	g.home = setting{"Eastern Standard Time", "US"}
 	g.homeFile = filepath.Join(t.TempDir(), "home.json")
-	g.found, g.have = exit("America/Los_Angeles", "US"), true
+	g.found, g.have = exit("America/New_York", "US"), true // at home first
+	g.reassert()
+	g.found = exit("America/Los_Angeles", "US")
 	g.reassert()
 	if f.zoneNow != "Pacific Standard Time" {
 		t.Fatalf("Windows on %s, want the exit's Pacific", f.zoneNow)
@@ -504,6 +506,28 @@ func TestAnExitInAnotherZoneAtHomeStillMoves(t *testing.T) {
 	g.reassert()
 	if f.zoneNow != "Central Standard Time" {
 		t.Errorf("Windows on %s, want Central", f.zoneNow)
+	}
+}
+
+// No VPN, and GeoJS puts your own ISP in another zone of your country: the first connection seen at
+// home is home's, so Windows stays as it is.
+func TestYourOwnISPInAnotherZoneDoesntMoveTheClock(t *testing.T) {
+	g, f, _ := newAgent(t)
+	f.zoneNow, f.regionNow = "Eastern Standard Time", "US"
+	g.home = setting{"Eastern Standard Time", "US"}
+	g.homeFile = filepath.Join(t.TempDir(), "home.json")
+	g.found, g.have = exit("America/Chicago", "US"), true
+	g.reassert()
+	if len(f.calls) > 0 || f.zoneNow != "Eastern Standard Time" {
+		t.Errorf("moved Windows to %s with no VPN: %v", f.zoneNow, f.calls)
+	}
+	if h := readHomeFile(t, g.homeFile); h.SetOn != "America/Chicago" {
+		t.Errorf("home.json %+v, want the first connection's zone as home's", h)
+	}
+	g.found = exit("America/Los_Angeles", "US") // a VPN exit in another zone still moves it
+	g.reassert()
+	if f.zoneNow != "Pacific Standard Time" {
+		t.Errorf("Windows on %s, want the exit's Pacific", f.zoneNow)
 	}
 }
 
