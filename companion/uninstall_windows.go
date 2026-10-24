@@ -16,7 +16,7 @@ type windowsAutoTZ struct{}
 
 func autoTimeZoneSwitch() autoTimeZoneControl { return windowsAutoTZ{} }
 func (windowsAutoTZ) on() bool                { return autoTimeZone() }
-func (windowsAutoTZ) set(on bool) error       { return setAutoTimeZone(0, on) }
+func (windowsAutoTZ) openSettings()           { openDateTimeSettings() }
 
 // consoleAsk asks on the console, when there is one to type into.
 func consoleAsk() func(string) bool {

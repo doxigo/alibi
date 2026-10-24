@@ -28,10 +28,10 @@ type system struct {
 	ask func(question string) bool
 }
 
-// autoTimeZoneControl is Windows' "Set time zone automatically".
+// autoTimeZoneControl is Windows' "Set time zone automatically", which you change in Settings.
 type autoTimeZoneControl interface {
 	on() bool
-	set(on bool) error // asks for an administrator's approval
+	openSettings() // Settings > Time & language > Date & time
 }
 
 func defaultSystem() system {
@@ -257,15 +257,12 @@ func setUpAgent(sys system, l layout, out io.Writer, timezone bool) error {
 		// Windows' own "Set time zone automatically" would move it back to where you really are.
 		if sys.autoTZ != nil && sys.autoTZ.on() {
 			const question = "\nWindows' \"Set time zone automatically\" is on, and it would move the zone back.\n" +
-				"Turn it off now? Windows will ask for your approval. [Y/n] "
-			switch {
-			case sys.ask == nil || !sys.ask(question):
+				"Open Date & time settings to switch it off? [Y/n] "
+			if sys.ask != nil && sys.ask(question) {
+				sys.autoTZ.openSettings()
+				fmt.Fprintln(out, "Opened Settings > Time & language > Date & time: switch off \"Set time zone automatically\" there.")
+			} else {
 				fmt.Fprintln(out, autoTimeZoneWarning)
-			case sys.autoTZ.set(false) != nil:
-				fmt.Fprintln(out, "Windows' automatic time zone is still on."+autoTimeZoneWarning)
-			default:
-				os.WriteFile(filepath.Join(l.dir, autoTimeZoneMarker), nil, 0o644)
-				fmt.Fprintln(out, "Turned off Windows' automatic time zone. Uninstalling offers to turn it back on.")
 			}
 		}
 	} else {
@@ -278,11 +275,7 @@ func setUpAgent(sys system, l layout, out io.Writer, timezone bool) error {
 }
 
 const autoTimeZoneWarning = "\nWindows' \"Set time zone automatically\" is on, and it can move the zone back.\n" +
-	"Turn it off from the tray, or in Settings > Time & language > Date & time."
-
-// Left in the companion's folder once the companion has turned off Windows' automatic time zone,
-// so uninstalling can offer to turn it back on.
-const autoTimeZoneMarker = "autotz-was-on"
+	"Switch it off in Settings > Time & language > Date & time (the tray opens it for you)."
 
 // The app's entry in Settings > Apps > Installed apps, for this user.
 const uninstallKey = `Software\Microsoft\Windows\CurrentVersion\Uninstall\AlibiCompanion`
@@ -331,15 +324,12 @@ func removeAgent(sys system, l layout, out io.Writer, quiet bool) error {
 	if restored {
 		fmt.Fprintf(out, "Put Windows back on %s, region %s\n", home.Zone, home.Region)
 	}
-	marker := filepath.Join(l.dir, autoTimeZoneMarker)
-	if _, err := os.Stat(marker); err == nil {
-		const question = "Alibi Companion turned off Windows' automatic time zone. Turn it back on? Windows will ask for your approval. [Y/n] "
-		if !quiet && sys.ask != nil && sys.autoTZ != nil && sys.ask(question) {
-			if err := sys.autoTZ.set(true); err != nil {
-				fmt.Fprintln(out, "Windows' automatic time zone stays off. Turn it on in Settings > Time & language > Date & time.")
-			} else {
-				fmt.Fprintln(out, "Turned Windows' automatic time zone back on")
-			}
+	// The companion never changes Windows' automatic time zone itself: if you switched it off for the
+	// companion, only you know, so it's a reminder, quiet or not.
+	if sys.autoTZ != nil && !sys.autoTZ.on() {
+		fmt.Fprintln(out, "Windows' \"Set time zone automatically\" is off. If you switched it off for Alibi Companion, switch it back on in Settings > Time & language > Date & time.")
+		if !quiet && sys.ask != nil && sys.ask("Open Date & time settings now? [Y/n] ") {
+			sys.autoTZ.openSettings()
 		}
 	}
 	for _, v := range []string{runName} {
@@ -350,7 +340,8 @@ func removeAgent(sys system, l layout, out io.Writer, quiet bool) error {
 	if err := sys.registry.deleteKey(uninstallKey); err != nil {
 		return err
 	}
-	for _, f := range []string{l.agent.state, l.agent.log, l.agent.settings, marker} {
+	// autotz-was-on: left by an earlier build, which switched the automatic time zone itself.
+	for _, f := range []string{l.agent.state, l.agent.log, l.agent.settings, filepath.Join(l.dir, "autotz-was-on")} {
 		os.Remove(f)
 	}
 	os.RemoveAll(l.agent.covers)
