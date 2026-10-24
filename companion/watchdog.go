@@ -29,6 +29,10 @@ type settings struct {
 	Blocked []string `json:"blockedCountries,omitempty"`
 }
 
+// followsAlibi reports whether a place in Alibi moves the system's clock: the time zone sync on, and
+// Follow Alibi's location with it.
+func (s settings) followsAlibi() bool { return s.Sync && s.FollowAlibi }
+
 func defaultSettings() settings {
 	return settings{Sync: true, Alerts: true, Sound: true, EdgeLine: true}
 }

@@ -85,12 +85,13 @@ const syncHeaders = () => (headerRulesReady = headerRulesReady.then(syncHeaderRu
 //
 // Alibi says whether it's following the IP ({ following }) the moment the port opens, so a companion
 // that looks the connection up itself asks GeoJS nothing while no cover needs it. A companion that can
-// also keep the system's own clock on Alibi's location (Whereabouts, Alibi Companion on Windows) says so
-// in its hello ({ hello, accepts: ['cover'] }). Alibi then sends it the All sites cover whenever it
-// changes ({ cover }), and keeps the port open while that cover is a place, which the companion holds
-// only for as long as the port stays open. It answers with the zone it holds the system on ({ system }),
-// which the popup shows; pages keep their own cover either way. One that says no hello, such as an
-// older Whereabouts, gets no cover, as before.
+// keep the system's own clock on Alibi's location right now (Whereabouts, Alibi Companion on Windows,
+// with Follow Alibi's location on) says so in its hello ({ hello, accepts: ['cover'] }), and says hello
+// again if that changes. Alibi then sends it the All sites cover whenever it changes ({ cover }), and
+// keeps the port open while that cover is a place, which the companion holds only for as long as the
+// port stays open. It answers with the zone it holds the system on ({ system }), which the popup shows;
+// pages keep their own cover either way. One that says no hello, such as an older Whereabouts, gets no
+// cover, as before.
 const IP_ALARM = 'matchIp'
 const COMPANION_ALARM = 'companion' // retries the port while a place waits for a companion that isn't up
 const WHEREABOUTS = 'com.doxigo.whereabouts'
@@ -130,7 +131,9 @@ const tellCompanion = async () => {
 }
 const hello = async ({ accepts }) => {
   heardHello = true
-  takesCovers = Array.isArray(accepts) && accepts.includes('cover')
+  const takes = Array.isArray(accepts) && accepts.includes('cover')
+  if (takes !== takesCovers) posted = null // starting to take covers: it gets the current one
+  takesCovers = takes
   if ((await chrome.storage.local.get('companion')).companion !== takesCovers) await chrome.storage.local.set({ companion: takesCovers })
   syncIpAlarm() // a place can now be held, or a port opened only to ask can close
 }
@@ -168,8 +171,9 @@ const closePort = () => {
   forgetPort()
 }
 // Opens the port for a moment to see whether a companion answers, and whether it takes the cover:
-// when the browser starts, when Alibi is installed or updated, and when a place is chosen while that's
-// still unknown. A host that's up but says no hello doesn't take it, until the next start asks again.
+// when the browser starts, when Alibi is installed or updated, and when a place is chosen while no
+// companion is known to take it (it may have started to: Follow Alibi's location switched on). The host
+// that's started asks GeoJS nothing, since no cover follows the IP then.
 const probeCompanion = () => {
   if (port || probing || !chrome.runtime.connectNative) return
   connectWhereabouts()
@@ -220,7 +224,7 @@ chrome.storage.onChanged.addListener((changes) => {
   syncIpAlarm()
   if (changes.configuration || changes.timezone) {
     chrome.storage.local.get(['configuration', 'timezone', 'companion'])
-      .then((stored) => stored.companion === undefined && holdsPlace(stored) && probeCompanion())
+      .then((stored) => stored.companion !== true && holdsPlace(stored) && probeCompanion())
   }
 })
 
