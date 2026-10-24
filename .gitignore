@@ -1,6 +1,8 @@
 /node_modules
 /build
 /alibi-*.zip
+/companion/dist
+/companion/*.syso
 /.impeccable/review
 /.impeccable/questions
 .DS_Store
