@@ -99,6 +99,9 @@ func apply(sys zoneSystem, want setting) (bool, error) {
 type agentConfig struct {
 	watch watchConfig
 	sys   zoneSystem
+	// Why the system's clock can't be moved here at all (an older Windows); nil when it can. The agent
+	// then only looks the connection up, for the tray and the host.
+	unsupported error
 	// Home, what the agent last set the system to, if it holds it anywhere, and the country the
 	// connection comes out in at home, "" for home's zone's (home.json, homeState).
 	home   setting
@@ -214,7 +217,9 @@ func (g *agent) reassert() {
 // one already under way: when the tray stops following, and when the agent stops.
 func (g *agent) release() {
 	g.mu.Lock()
-	g.letGoLocked()
+	if g.unsupported == nil {
+		g.letGoLocked()
+	}
 	r := g.reportLocked("", "")
 	g.mu.Unlock()
 	if g.report != nil {
@@ -241,10 +246,14 @@ func (g *agent) syncLocked() agentReport {
 }
 
 func (g *agent) reportLocked(system, target string) agentReport {
+	r := agentReport{Err: g.lastErr, Wish: g.wish, System: system, Target: target}
+	if g.unsupported != nil {
+		return r
+	}
 	h := g.homeLocked()
-	homeZone, _ := g.sys.ianaZone(baseZone(h.Zone), h.Region)
-	return agentReport{Err: g.lastErr, Wish: g.wish, System: system, Target: target, Home: h.setting, HomeZone: homeZone,
-		HomeCountry: g.homeCountryLocked()}
+	r.Home, r.HomeCountry = h.setting, g.homeCountryLocked()
+	r.HomeZone, _ = g.sys.ianaZone(baseZone(h.Zone), h.Region)
+	return r
 }
 
 // homeLocked is home as it stands.
@@ -352,6 +361,9 @@ func (a agentConfig) placeOf(w *wish) string {
 // the real one. With sync off it puts the system back home once, then leaves it alone, but still says
 // when it matches. The caller holds g.mu.
 func (g *agent) settle(found cover, have bool, w *wish) (cover, string, string) {
+	if g.unsupported != nil {
+		return found, "", ""
+	}
 	place := g.placeOf(w)
 	syncing := g.sync == nil || g.sync()
 	if !g.dryRun {

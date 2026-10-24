@@ -42,6 +42,7 @@ const checkPage = "https://doxigo.github.io/alibi/"
 type trayApp struct {
 	l            layout
 	sys          system
+	unsupported  error // why time zone sync can't run on this Windows, if it can't
 	settingsPath string
 	nudge        chan struct{}
 	logf         func(string, ...any)
@@ -345,6 +346,8 @@ func (t *trayApp) statusLines(s snapshot) []string {
 	// A place Alibi has for all sites, which Windows is following.
 	held := s.settings.FollowAlibi && s.wish != nil && s.wish.namesPlace()
 	switch {
+	case t.unsupported != nil:
+		lines = append(lines, "Time zone sync needs Windows 10 version 1903 or later")
 	case s.reads == "":
 	case s.system != "" && s.system == s.reads:
 		if held {
@@ -437,9 +440,13 @@ func (t *trayApp) showMenu(hwnd uintptr) {
 		}
 		return mfGrayed
 	}
-	add(check(s.settings.Sync), cmdSync, "Keep Windows on my VPN's time zone")
+	unavailable := uintptr(0)
+	if t.unsupported != nil {
+		unavailable = mfGrayed
+	}
+	add(check(s.settings.Sync)|unavailable, cmdSync, "Keep Windows on my VPN's time zone")
 	syncing := uintptr(mfGrayed)
-	if s.settings.Sync {
+	if s.settings.Sync && t.unsupported == nil {
 		syncing = 0
 	}
 	add(check(s.settings.FollowAlibi)|syncing, cmdFollowAlibi, "      or on Alibi's location for all sites")

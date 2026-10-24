@@ -361,6 +361,27 @@ func TestDryRunChangesNothing(t *testing.T) {
 	}
 }
 
+// On a Windows too old for time zone sync, the agent moves nothing and records no home, but still
+// reports where the connection comes out.
+func TestAnUnsupportedWindowsIsLeftAlone(t *testing.T) {
+	g, f, reports := newAgent(t)
+	g.unsupported = errors.New("too old")
+	g.homeFile = filepath.Join(t.TempDir(), "home.json")
+	g.found, g.have = exit("Asia/Dushanbe", "TJ"), true
+	g.setWish(&wish{Configuration: "tokyo", Timezone: "Asia/Tokyo"})
+	g.reassert()
+	if r := (*reports)[len(*reports)-1]; r.Place.Country != "TJ" || r.System != "" || r.Home != (setting{}) {
+		t.Errorf("report %+v", r)
+	}
+	g.release()
+	if len(f.calls) > 0 {
+		t.Errorf("changed %v", f.calls)
+	}
+	if _, err := os.Stat(g.homeFile); !os.IsNotExist(err) {
+		t.Error("recorded a home")
+	}
+}
+
 // newHomeAgent is newAgent keeping home.json, with its connection already known to be in Tajikistan.
 func newHomeAgent(t *testing.T) (*agent, *fakeZones) {
 	g, f, _ := newAgent(t)
