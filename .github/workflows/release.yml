@@ -22,8 +22,14 @@ jobs:
         with:
           node-version: 22
           cache: yarn
+      - uses: actions/setup-go@v7
+        with:
+          go-version: stable
+          cache-dependency-path: companion/go.sum
       - run: yarn install --frozen-lockfile
       - run: yarn test
+      - run: go test ./...
+        working-directory: companion
       - name: Check the tag matches manifest.json
         run: |
           version="v$(node -p "require('./manifest.json').version")"
@@ -37,6 +43,10 @@ jobs:
           mv alibi-store.zip "alibi-$GITHUB_REF_NAME-chrome-web-store.zip"
           yarn build
           (cd build && zip -qr "../alibi-$GITHUB_REF_NAME.zip" .)
+      - name: Build Alibi Companion
+        run: |
+          yarn build:companion
+          (cd companion/dist && sha256sum * > SHA256SUMS)
       - name: Publish the release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -44,6 +54,11 @@ jobs:
           gh release create "$GITHUB_REF_NAME" \
             "alibi-$GITHUB_REF_NAME.zip#Alibi $GITHUB_REF_NAME (unzip, then Load unpacked)" \
             "alibi-$GITHUB_REF_NAME-chrome-web-store.zip#Chrome Web Store upload (no userScripts or nativeMessaging permission)" \
+            "companion/dist/alibi-companion-windows-x64.exe#Alibi Companion for Windows (x64)" \
+            "companion/dist/alibi-companion-windows-arm64.exe#Alibi Companion for Windows (ARM64)" \
+            "companion/dist/alibi-companion-linux-x64#Alibi Companion for Linux (x64)" \
+            "companion/dist/alibi-companion-linux-arm64#Alibi Companion for Linux (ARM64)" \
+            "companion/dist/SHA256SUMS#SHA-256 checksums of the companion downloads" \
             --title "Alibi $GITHUB_REF_NAME" \
             --notes-from-tag \
             --verify-tag
