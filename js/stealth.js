@@ -21,7 +21,9 @@ export default function stealth(config) {
   // "Match my IP address" while the Mac's own zone is already the exit's (Whereabouts moves it there):
   // leave Date native, so the next VPN switch reaches this page live, the way Chrome passes on any
   // system time zone change. A fixed cover keeps its zone even if the Mac's moves later.
-  if (config.configuration === 'ipAddress' && timezone === Intl.DateTimeFormat().resolvedOptions().timeZone) timezone = null
+  // Zones compare as the browser names them: a system it calls Asia/Calcutta is on Asia/Kolkata.
+  if (config.configuration === 'ipAddress' && timezone &&
+    new Intl.DateTimeFormat('en-US', { timeZone: timezone }).resolvedOptions().timeZone === Intl.DateTimeFormat().resolvedOptions().timeZone) timezone = null
   if (!(timezone || locale || lat || lon)) return // e.g. a site set to its real location
   const cover = { timezone, locale, lat, lon }
 

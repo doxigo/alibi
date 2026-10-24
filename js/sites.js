@@ -25,6 +25,37 @@ export const languagesFor = (locale) => [...new Set([locale, locale.split('-')[0
 
 export const isActive = ({ timezone, locale, lat, lon }) => !!(timezone || locale || lat || lon)
 
+// What the All sites cover asks of the computer's own clock, for a companion that can keep the system
+// on Alibi's location (Whereabouts on the Mac, Alibi Companion on Windows): its kind, its zone, and the
+// locale whose country the system's region can follow. Per-site covers stay in the browser: the system
+// has one clock.
+export const systemCover = ({ configuration, timezone, locale }) => {
+  const on = configuration && configuration !== 'browserDefault'
+  return {
+    configuration: on ? configuration : 'browserDefault',
+    timezone: on && timezone ? timezone : null,
+    locale: on && locale ? locale : null,
+  }
+}
+
+// Whether the All sites cover is a place, the only kind a companion moves the system's clock for. Off
+// and "Match my IP address" leave the system to follow the connection, as it does without Alibi.
+export const holdsPlace = (stored) => {
+  const { configuration, timezone } = systemCover(stored)
+  return configuration !== 'browserDefault' && configuration !== 'ipAddress' && !!timezone
+}
+
+// Whether two zone names are one zone as the browser names it: Asia/Kolkata and Asia/Calcutta are.
+export const sameZone = (a, b) => {
+  if (!a || !b) return false
+  try {
+    const named = (zone) => new Intl.DateTimeFormat('en-US', { timeZone: zone }).resolvedOptions().timeZone
+    return named(a) === named(b)
+  } catch {
+    return false
+  }
+}
+
 // "Match my IP address": where GeoJS places this connection, as a cover.
 // GeoJS: free, no key, HTTPS, so the lookup can't be read or altered on the way.
 export const ipCover = async () => {

@@ -68,9 +68,32 @@ execFileSync('node', ['--no-warnings', '--input-type=module', '-e', `
 `], { stdio: 'inherit', env: { ...process.env, TZ: 'Europe/Oslo' } })
 console.log('ok IP cover leaves a matching zone live')
 
+// The system names its zone the way the browser does: on Asia/Kolkata it says Asia/Calcutta. An IP
+// cover on Asia/Kolkata (GeoJS's name) still counts as matching.
+execFileSync('node', ['--no-warnings', '--input-type=module', '-e', `
+  import assert from 'node:assert/strict'
+  assert.equal(Intl.DateTimeFormat().resolvedOptions().timeZone, 'Asia/Calcutta')
+  const { default: s } = await import(${JSON.stringify(new URL('../js/stealth.js', import.meta.url).href)})
+  const native = Date
+  s({ configuration: 'ipAddress', timezone: 'Asia/Kolkata' })
+  assert.equal(Date, native)
+`], { stdio: 'inherit', env: { ...process.env, TZ: 'Asia/Kolkata' } })
+console.log('ok zone names compare as the browser names them')
+
+// A fixed cover keeps faking its zone even with the system on it, and whatever a companion says it
+// holds: if the system's zone moves later (another browser, the companion quitting), open tabs don't follow.
+execFileSync('node', ['--no-warnings', '--input-type=module', '-e', `
+  import assert from 'node:assert/strict'
+  const { default: s } = await import(${JSON.stringify(new URL('../js/stealth.js', import.meta.url).href)})
+  const native = Date
+  s({ configuration: 'tokyo', timezone: 'Asia/Tokyo', locale: 'ja-JP', systemZone: 'Asia/Tokyo' })
+  assert.notEqual(Date, native)
+`], { stdio: 'inherit', env: { ...process.env, TZ: 'Asia/Tokyo' } })
+console.log('ok a fixed cover keeps its zone on the system')
+
 // "Match my IP address" covers move with the connection; every other cover stays put.
 globalThis.chrome = { runtime: { getManifest: () => ({ permissions: [] }) } }
-const { checkedCover, followIp, followsIp } = await import('../js/sites.js')
+const { checkedCover, followIp, followsIp, holdsPlace, sameZone, systemCover } = await import('../js/sites.js')
 const stockholm = { timezone: 'Europe/Stockholm', locale: 'sv-SE', lat: 59.33, lon: 18.07 }
 const oslo = { configuration: 'ipAddress', timezone: 'Europe/Oslo', locale: 'nb-NO', lat: 59.91, lon: 10.75 }
 const tokyo = { configuration: 'tokyo', timezone: 'Asia/Tokyo', locale: 'ja-JP' }
@@ -85,3 +108,19 @@ assert.deepEqual(checkedCover({ timezone: 'Europe/Stockholm', locale: 'sv-SE' })
 assert.throws(() => checkedCover({ timezone: 'Mars/Olympus', locale: 'sv-SE' }))
 assert.throws(() => checkedCover({ locale: 'sv-SE' }))
 console.log('ok match my IP')
+
+assert.ok(sameZone('Asia/Kolkata', 'Asia/Calcutta') && sameZone('Europe/Kyiv', 'Europe/Kiev') && !sameZone('America/Detroit', 'America/New_York'))
+assert.ok(!sameZone(null, 'Asia/Tokyo') && !sameZone('Mars/Olympus', 'Mars/Olympus'))
+console.log('ok zones match by name')
+
+// What the All sites cover asks of the system's clock: only a place holds it anywhere.
+assert.deepEqual(systemCover({ configuration: 'tokyo', timezone: 'Asia/Tokyo', locale: 'ja-JP', lat: 35.7 }), { configuration: 'tokyo', timezone: 'Asia/Tokyo', locale: 'ja-JP' })
+assert.deepEqual(systemCover({ configuration: 'ipAddress', timezone: 'Asia/Dushanbe', locale: 'tg-TJ' }), { configuration: 'ipAddress', timezone: 'Asia/Dushanbe', locale: 'tg-TJ' })
+assert.deepEqual(systemCover({ configuration: 'browserDefault', timezone: 'Asia/Tokyo', locale: 'ja-JP' }), { configuration: 'browserDefault', timezone: null, locale: null })
+assert.deepEqual(systemCover({}), { configuration: 'browserDefault', timezone: null, locale: null })
+assert.deepEqual(systemCover({ configuration: 'custom', locale: 'de-DE' }), { configuration: 'custom', timezone: null, locale: 'de-DE' })
+assert.ok(holdsPlace(tokyo) && holdsPlace({ configuration: 'custom', timezone: 'Etc/GMT-1' }))
+assert.ok(!holdsPlace(oslo) && !holdsPlace({ configuration: 'browserDefault', timezone: 'Asia/Tokyo' }) && !holdsPlace({}))
+assert.ok(!holdsPlace({ configuration: 'custom', locale: 'de-DE' }) && !holdsPlace({ ...stockholm, configuration: 'ipAddress' }))
+assert.ok(!holdsPlace({ configuration: 'browserDefault', sites: { 'b.com': tokyo } }), 'a per-site place stays in the browser')
+console.log('ok only a place for all sites holds the system')
