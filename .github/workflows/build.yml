@@ -70,11 +70,13 @@ jobs:
       - name: Check formatting
         if: runner.os == 'Linux'
         run: test -z "$(gofmt -l .)" || { gofmt -l .; echo "::error::run gofmt -w on these files"; exit 1; }
-      # The Windows and Linux programs, cross-compiled once.
+      # The Windows and Linux programs, cross-compiled once. Built for pull requests too, but uploaded
+      # only from pushes and manual runs, so a download from the latest run on main is never someone's
+      # pull request.
       - if: runner.os == 'Linux'
         run: node ../scripts/build-companion.mjs
       - uses: actions/upload-artifact@v7
-        if: runner.os == 'Linux'
+        if: runner.os == 'Linux' && github.event_name != 'pull_request'
         with:
           name: alibi-companion
           path: companion/dist/
