@@ -65,3 +65,26 @@ func TestCountryLocales(t *testing.T) {
 		}
 	}
 }
+
+// The stand-in for GeoJS is taken only over HTTPS, or plain HTTP to this computer, as tests use.
+func TestGeoJSOverride(t *testing.T) {
+	for raw, want := range map[string]bool{
+		"https://geo.example.com/v1/ip/geo.json": true,
+		"http://127.0.0.1:8123":                  true,
+		"http://[::1]:8123/geo":                  true,
+		"http://localhost:8123":                  true,
+		"http://geo.example.com/v1/ip/geo.json":  false,
+		"http://192.0.2.7":                       false,
+		"ftp://127.0.0.1":                        false,
+		"127.0.0.1:8123":                         false,
+		"":                                       false,
+	} {
+		if _, ok := geoJSOverride(raw); ok != want {
+			t.Errorf("%q: taken %v, want %v", raw, ok, want)
+		}
+	}
+	t.Setenv("ALIBI_COMPANION_GEOJS_URL", "http://geo.example.com/geo.json")
+	if g := newGeoJS(); g.url != geoJSURL {
+		t.Errorf("a plain-HTTP stand-in elsewhere was taken: %s", g.url)
+	}
+}
