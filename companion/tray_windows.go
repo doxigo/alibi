@@ -48,6 +48,9 @@ type trayApp struct {
 	onSyncChange func() // when the tray switches following the VPN or Alibi's location on or off
 	onRelease    func() // when it stops following: Windows goes back home
 	onSessionEnd func() // signing out or shutting down, before the tray goes
+	// Runs the agent's side of a click or a time change off the window's thread, in a worker that
+	// stops with the agent (worker).
+	later func(func())
 
 	mu          sync.Mutex
 	homeZone    string // home's IANA zone, for its clock; the agent says when home moves
@@ -140,8 +143,8 @@ func (t *trayApp) wndProc(hwnd, message, wParam, lParam uintptr) uintptr {
 	case wmTimeChange:
 		// Something changed the time zone. If it wasn't the agent (Windows' own automatic time zone,
 		// say), the agent puts it back now rather than at its next look.
-		if t.onTimeChange != nil {
-			go t.onTimeChange()
+		if t.onTimeChange != nil && t.later != nil {
+			t.later(t.onTimeChange)
 		}
 		return 0
 	case wmDpiChanged:
@@ -493,18 +496,20 @@ func (t *trayApp) command(cmd int) {
 	switch cmd {
 	case cmdSync:
 		s := t.toggle(func(s *settings) { s.Sync = !s.Sync })
-		go func() {
-			if !s.Sync && t.onRelease != nil { // off: Windows goes back home, and is left alone
-				t.onRelease()
-			}
-			if t.onSyncChange != nil {
-				t.onSyncChange()
-			}
-		}()
+		if t.later != nil {
+			t.later(func() {
+				if !s.Sync && t.onRelease != nil { // off: Windows goes back home, and is left alone
+					t.onRelease()
+				}
+				if t.onSyncChange != nil {
+					t.onSyncChange()
+				}
+			})
+		}
 	case cmdFollowAlibi:
 		t.toggle(func(s *settings) { s.FollowAlibi = !s.FollowAlibi })
-		if t.onSyncChange != nil { // a place, or back to the connection's zone
-			go t.onSyncChange()
+		if t.onSyncChange != nil && t.later != nil { // a place, or back to the connection's zone
+			t.later(t.onSyncChange)
 		}
 	case cmdAlerts:
 		t.toggle(func(s *settings) { s.Alerts = !s.Alerts })
