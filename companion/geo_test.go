@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -66,13 +67,38 @@ func TestCountryLocales(t *testing.T) {
 	}
 }
 
+// A redirect to plain HTTP is refused, so no answer comes in the clear.
+func TestLookupRefusesARedirectToPlainHTTP(t *testing.T) {
+	away := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "http://geo.example.com/geo.json", http.StatusFound)
+	}))
+	defer away.Close()
+	t.Setenv("ALIBI_COMPANION_GEOJS_URL", away.URL)
+	if _, err := newGeoJS().lookup(context.Background()); err == nil || !strings.Contains(err.Error(), "refused a redirect") {
+		t.Errorf("err %v", err)
+	}
+	// One to this computer's own address, as a test's server is, still goes.
+	geo := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		io.WriteString(w, `{"timezone":"Europe/Oslo","country_code":"NO"}`)
+	}))
+	defer geo.Close()
+	here := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, geo.URL, http.StatusFound)
+	}))
+	defer here.Close()
+	t.Setenv("ALIBI_COMPANION_GEOJS_URL", here.URL)
+	if place, err := newGeoJS().lookup(context.Background()); err != nil || place.Timezone != "Europe/Oslo" {
+		t.Errorf("redirect on this computer: %+v, %v", place, err)
+	}
+}
+
 // The stand-in for GeoJS is taken only over HTTPS, or plain HTTP to this computer, as tests use.
 func TestGeoJSOverride(t *testing.T) {
 	for raw, want := range map[string]bool{
 		"https://geo.example.com/v1/ip/geo.json": true,
 		"http://127.0.0.1:8123":                  true,
 		"http://[::1]:8123/geo":                  true,
-		"http://localhost:8123":                  true,
+		"http://localhost:8123":                  false, // a name, which DNS could send elsewhere
 		"http://geo.example.com/v1/ip/geo.json":  false,
 		"http://192.0.2.7":                       false,
 		"ftp://127.0.0.1":                        false,

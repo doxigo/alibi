@@ -62,23 +62,36 @@ func newGeoJS() *geoJS {
 	return &geoJS{url: url, atURL: atURL, client: freshClient("tcp"), ipv6: freshClient("tcp6")}
 }
 
-// geoJSOverride takes a stand-in for GeoJS only over HTTPS, or over plain HTTP to this computer (a
-// test's own server), so a variable left set can't send lookups anywhere in the clear.
+// geoJSOverride takes a stand-in for GeoJS only over HTTPS, or over plain HTTP to this computer by
+// address (a test's own server), so a variable left set can't send lookups anywhere in the clear. A name
+// like localhost could resolve elsewhere through DNS, so only an IP address counts.
 func geoJSOverride(raw string) (string, bool) {
 	u, err := neturl.Parse(raw)
 	if err != nil || u.Host == "" {
 		return "", false
 	}
-	switch u.Scheme {
-	case "https":
+	if u.Scheme == "https" || loopbackHTTP(u) {
 		return raw, true
-	case "http":
-		host := u.Hostname()
-		if ip := net.ParseIP(host); host == "localhost" || ip != nil && ip.IsLoopback() {
-			return raw, true
-		}
 	}
 	return "", false
+}
+
+// loopbackHTTP is plain HTTP to this computer's own address.
+func loopbackHTTP(u *neturl.URL) bool {
+	ip := net.ParseIP(u.Hostname())
+	return u.Scheme == "http" && ip != nil && ip.IsLoopback()
+}
+
+// stayEncrypted refuses a redirect to plain HTTP anywhere but this computer, so no answer about where
+// you are ever comes in the clear, from GeoJS or a stand-in.
+func stayEncrypted(req *http.Request, via []*http.Request) error {
+	if len(via) >= 10 {
+		return errors.New("stopped after 10 redirects")
+	}
+	if req.URL.Scheme != "https" && !loopbackHTTP(req.URL) {
+		return fmt.Errorf("refused a redirect to %s", req.URL.Redacted())
+	}
+	return nil
 }
 
 // freshClient opens a new connection for every request, so each answer comes over the route the
@@ -90,7 +103,7 @@ func freshClient(network string) *http.Client {
 	transport.DialContext = func(ctx context.Context, _, addr string) (net.Conn, error) {
 		return dialer.DialContext(ctx, network, addr)
 	}
-	return &http.Client{Timeout: 10 * time.Second, Transport: transport}
+	return &http.Client{Timeout: 10 * time.Second, Transport: transport, CheckRedirect: stayEncrypted}
 }
 
 // lookup is where the connection appears to come out.
