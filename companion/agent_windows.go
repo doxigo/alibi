@@ -44,7 +44,7 @@ var syncSupported = sync.OnceValue(func() error {
 func allFound(procs ...*windows.LazyProc) error {
 	for _, p := range procs {
 		if err := p.Find(); err != nil {
-			return fmt.Errorf("time zone sync needs Windows 10 version 1903 or later: %w", err)
+			return fmt.Errorf("time zone sync isn't available on this Windows: %w", err) // names what's missing
 		}
 	}
 	return nil
