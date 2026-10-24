@@ -14,6 +14,7 @@ import (
 	"runtime"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -37,9 +38,13 @@ func host(origin string, stdin io.Reader, stdout, stderr io.Writer) int {
 		logger.Print(err)
 		return 1
 	}
+	word := newFollowWord(olderAlibiAfter)
 	// stdin closing means the browser closed the port.
 	go func() {
 		readMessages(stdin, func(message []byte) {
+			if on, ok := followingIn(message); ok {
+				word.set(on)
+			}
 			if takesCovers {
 				if err := takeCover(message, l.agent.wanted); err != nil {
 					logger.Print(err)
@@ -48,7 +53,7 @@ func host(origin string, stdin io.Reader, stdout, stderr io.Writer) int {
 		})
 		cancel()
 	}()
-	if err := follow(ctx, defaultWatch(newGeoJS().lookup, logger.Printf), agentWord(sys), s); err != nil {
+	if err := follow(ctx, defaultWatch(newGeoJS().lookup, logger.Printf), agentWord(sys), s, word); err != nil {
 		logger.Print(err)
 		return 1
 	}
@@ -142,10 +147,71 @@ func (s *sender) sendSystem(zone string) error {
 	return nil
 }
 
+// An Alibi that hasn't said within this long whether it follows the IP is one from before it said so,
+// which only ever opens the port while a cover follows the IP.
+const olderAlibiAfter = 2 * time.Second
+
+// followWord is what Alibi last said about following the IP ({"following": …}), which it says the
+// moment the port opens. Until it does, the host looks nothing up.
+type followWord struct {
+	mu      sync.Mutex
+	on      bool
+	said    bool          // Alibi has said, rather than the host assuming
+	changed chan struct{} // closed, and replaced, at every change
+}
+
+// newFollowWord waits for Alibi's word, and after assume without one, takes it that Alibi follows the IP.
+func newFollowWord(assume time.Duration) *followWord {
+	w := &followWord{changed: make(chan struct{})}
+	time.AfterFunc(assume, func() {
+		w.mu.Lock()
+		defer w.mu.Unlock()
+		if !w.said {
+			w.changeLocked(true)
+		}
+	})
+	return w
+}
+
+func (w *followWord) set(on bool) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.said = true
+	w.changeLocked(on)
+}
+
+func (w *followWord) changeLocked(on bool) {
+	if on == w.on {
+		return
+	}
+	w.on = on
+	close(w.changed)
+	w.changed = make(chan struct{})
+}
+
+// now is the word as it stands, and a channel that closes when it next changes.
+func (w *followWord) now() (bool, <-chan struct{}) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.on, w.changed
+}
+
+// followingIn reads Alibi's word on following the IP from one of its messages, if it is one.
+func followingIn(message []byte) (bool, bool) {
+	var m struct {
+		Following *bool `json:"following"`
+	}
+	if json.Unmarshal(message, &m) != nil || m.Following == nil {
+		return false, false
+	}
+	return *m.Following, true
+}
+
 // follow passes on the agent's word while the agent runs: on Windows it has already moved the
-// system's clock, and its place names the zone the way browsers now read it, so Alibi has nothing
-// to fake. While no agent runs, follow looks the place up itself.
-func follow(ctx context.Context, cfg watchConfig, agent func() (agentState, bool), s *sender) error {
+// system's clock, and its place names the zone the way browsers now read it. While no agent runs,
+// follow looks the place up itself, but only while Alibi says a cover follows the IP: otherwise there's
+// nothing to ask GeoJS for.
+func follow(ctx context.Context, cfg watchConfig, agent func() (agentState, bool), s *sender, word *followWord) error {
 	for ctx.Err() == nil {
 		if _, ok := agent(); ok {
 			if err := relay(ctx, cfg.relay, agent, s); err != nil {
@@ -156,13 +222,17 @@ func follow(ctx context.Context, cfg watchConfig, agent func() (agentState, bool
 		if err := s.sendSystem(""); err != nil {
 			return err
 		}
+		following, changed := word.now()
 		own, stop := context.WithCancel(ctx)
-		go func() { // hand back to the agent the moment it's there
+		go func() { // hand back to the agent the moment it's there, and start or stop looking when Alibi says
 			tick := time.NewTicker(cfg.relay)
 			defer tick.Stop()
 			for {
 				select {
 				case <-own.Done():
+					return
+				case <-changed:
+					stop()
 					return
 				case <-tick.C:
 					if _, ok := agent(); ok {
@@ -172,15 +242,20 @@ func follow(ctx context.Context, cfg watchConfig, agent func() (agentState, bool
 				}
 			}
 		}()
-		err := watch(own, cfg, func(place cover, err error) error {
-			if err != nil {
-				if own.Err() == nil {
-					cfg.logf("couldn't look up the connection: %v", err)
+		var err error
+		if following {
+			err = watch(own, cfg, func(place cover, err error) error {
+				if err != nil {
+					if own.Err() == nil {
+						cfg.logf("couldn't look up the connection: %v", err)
+					}
+					return nil // offline, or GeoJS down: Alibi keeps the last place
 				}
-				return nil // offline, or GeoJS down: Alibi keeps the last place
-			}
-			return s.send(place)
-		})
+				return s.send(place)
+			})
+		} else {
+			<-own.Done()
+		}
 		stop()
 		if err != nil {
 			return err

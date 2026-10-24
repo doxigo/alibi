@@ -94,12 +94,24 @@ type served struct {
 
 func noAgent() (agentState, bool) { return agentState{}, false }
 
+// following is Alibi's word on following the IP, as if it had just said it.
+func following(on bool) *followWord {
+	w := newFollowWord(time.Hour)
+	w.set(on)
+	return w
+}
+
 // startServe runs follow with no agent, the way the host runs on a computer without time zone sync.
 func startServe(t *testing.T, cfg watchConfig) (io.Reader, context.CancelFunc, *served) {
 	return startFollow(t, cfg, noAgent)
 }
 
 func startFollow(t *testing.T, cfg watchConfig, agent func() (agentState, bool)) (io.Reader, context.CancelFunc, *served) {
+	return startFollowing(t, cfg, agent, following(true))
+}
+
+// startFollowing is startFollow with Alibi's word on following the IP as the test sets it.
+func startFollowing(t *testing.T, cfg watchConfig, agent func() (agentState, bool), word *followWord) (io.Reader, context.CancelFunc, *served) {
 	t.Helper()
 	if cfg.relay == 0 {
 		cfg.relay = 5 * time.Millisecond
@@ -108,7 +120,7 @@ func startFollow(t *testing.T, cfg watchConfig, agent func() (agentState, bool))
 	ctx, cancel := context.WithCancel(context.Background())
 	s := &served{done: make(chan struct{})}
 	go func() {
-		s.err = follow(ctx, cfg, agent, &sender{out: w})
+		s.err = follow(ctx, cfg, agent, &sender{out: w}, word)
 		w.CloseWithError(io.EOF)
 		close(s.done)
 	}()
@@ -176,8 +188,66 @@ func TestServeKeepsQuietWhenTheLookupFails(t *testing.T) {
 func TestServeStopsWhenTheBrowserStopsReading(t *testing.T) {
 	lookup, _ := sequence(tokyo)
 	cfg := watchConfig{lookup: lookup, fingerprint: func() string { return "" }, logf: t.Logf, poll: time.Hour, watch: time.Hour, relay: time.Hour}
-	if err := follow(context.Background(), cfg, noAgent, &sender{out: failingWriter{}}); err == nil {
+	if err := follow(context.Background(), cfg, noAgent, &sender{out: failingWriter{}}, following(true)); err == nil {
 		t.Fatal("follow kept going after a failed write")
+	}
+}
+
+// While no cover in Alibi follows the IP, the host asks GeoJS nothing: picking a city on Linux, or
+// after Quit on Windows, sends no request. Once Alibi says one follows, it looks, and stops again when
+// Alibi says none does.
+func TestFollowLooksNothingUpWhileAlibiDoesntFollow(t *testing.T) {
+	lookup, calls := sequence(tokyo)
+	word := following(false)
+	r, _, _ := startFollowing(t, watchConfig{lookup: lookup, fingerprint: func() string { return "" }, logf: t.Logf,
+		poll: 5 * time.Millisecond, watch: time.Hour}, noAgent, word)
+	if got := readFrame(t, r); got["system"] != nil || len(got) != 1 {
+		t.Fatalf("first message %v, want {system: null}", got)
+	}
+	time.Sleep(50 * time.Millisecond)
+	if n := calls.Load(); n != 0 {
+		t.Fatalf("%d lookups while nothing follows the IP", n)
+	}
+	word.set(true)
+	if got := readPlace(t, r)["timezone"]; got != "Asia/Tokyo" {
+		t.Fatalf("got %v once Alibi follows the IP", got)
+	}
+	word.set(false)
+	time.Sleep(20 * time.Millisecond)
+	before := calls.Load()
+	time.Sleep(50 * time.Millisecond)
+	if n := calls.Load(); n != before {
+		t.Errorf("%d more lookups after Alibi stopped following", n-before)
+	}
+}
+
+// An Alibi from before it said {following} only ever opens the port while a cover follows the IP: with
+// no word at all, the host takes it that one does.
+func TestFollowWordAssumesAnOlderAlibiFollows(t *testing.T) {
+	word := newFollowWord(10 * time.Millisecond)
+	on, changed := word.now()
+	if on {
+		t.Fatal("following before Alibi said, or the wait was up")
+	}
+	select {
+	case <-changed:
+	case <-time.After(5 * time.Second):
+		t.Fatal("never took it that an older Alibi follows the IP")
+	}
+	if on, _ := word.now(); !on {
+		t.Error("not following after the wait")
+	}
+	said := newFollowWord(10 * time.Millisecond)
+	said.set(false)
+	time.Sleep(50 * time.Millisecond)
+	if on, _ := said.now(); on {
+		t.Error("an Alibi that said it doesn't follow the IP was taken to follow it")
+	}
+	for message, want := range map[string]int{`{"following":true}`: 1, `{"following":false}`: 0, `{"cover":{}}`: -1, `{"following":"yes"}`: -1, `nope`: -1} {
+		on, ok := followingIn([]byte(message))
+		if got := map[bool]int{true: 1, false: 0}[on]; !ok && want != -1 || ok && got != want {
+			t.Errorf("%s: %v, %v", message, on, ok)
+		}
 	}
 }
 
@@ -366,6 +436,7 @@ func TestHostAnswersAlibiAndExitsWhenThePortCloses(t *testing.T) {
 	if hello["hello"] != "alibi-companion" || takes != (runtime.GOOS == "windows") {
 		t.Errorf("hello %v", hello)
 	}
+	writeFrame(stdinW, []byte(`{"following":true}`)) // Alibi says so the moment the port opens
 	message := readPlace(t, stdoutR)
 	want := map[string]any{"timezone": "Europe/Oslo", "locale": "nb-NO", "lat": 59.9139, "lon": 10.7522}
 	for k, v := range want {
