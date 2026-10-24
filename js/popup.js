@@ -1,6 +1,6 @@
 import { detachDebugger } from './debugger.js'
 import locationsConfigurations from './locationsConfigurations.js'
-import { coverFor, ipCover, siteKey, userScriptsAvailable, userScriptsPermitted } from './sites.js'
+import { coverFor, ipCover, sameZone, siteKey, userScriptsAvailable, userScriptsPermitted } from './sites.js'
 
 const $ = (selector) => document.querySelector(selector)
 
@@ -158,6 +158,10 @@ const updateClock = () => {
   dieOffset.textContent = offset
 }
 
+// How the popup names this computer when its own clock is on the cover's zone too.
+const platform = navigator.userAgentData?.platform ?? navigator.platform
+const onSystem = /mac/i.test(platform) ? 'on your Mac too' : /win/i.test(platform) ? 'on Windows too' : 'on this computer too'
+
 const describe = (cover) => {
   const zone = cover.timezone && isTimeZone(cover.timezone) ? cover.timezone : null
   const locale = cover.locale && isLocale(cover.locale) ? cover.locale : null
@@ -172,15 +176,17 @@ const describe = (cover) => {
     }
   }
   const lead = `${who} ${sees} you in`
+  // A companion holds the computer's own clock on this zone too (background.js, systemHeld).
+  const system = zone && sameZone(zone, stored.systemZone) ? onSystem : null
   if (preset) {
     const [city, country = ''] = preset.name.split(', ')
-    return { zone: zone ?? realTimeZone, city, region: country || city, locale, lead, extras: [locale].filter(Boolean) }
+    return { zone: zone ?? realTimeZone, city, region: country || city, locale, lead, extras: [locale, system].filter(Boolean) }
   }
   const country = (locale && countryFromLocale(locale)) || (zone ? zone.split('/')[0] : null)
   const coords = [cover.lat, cover.lon].filter(Boolean).join(', ')
   return {
     zone: zone ?? realTimeZone, city: zone ? cityFromZone(zone) : 'Custom cover', region: country ?? 'Custom', locale, lead,
-    extras: [locale, coords].filter(Boolean),
+    extras: [locale, coords, system].filter(Boolean),
   }
 }
 
@@ -415,7 +421,7 @@ $('#userScriptsLink').addEventListener('click', () =>
 
 // --- Start -------------------------------------------------------------------------------------
 
-stored = await chrome.storage.local.get(['configuration', 'timezone', 'locale', 'lat', 'lon', 'useDebuggerApi', 'sites'])
+stored = await chrome.storage.local.get(['configuration', 'timezone', 'locale', 'lat', 'lon', 'useDebuggerApi', 'sites', 'systemZone'])
 // On shop.example.com, an existing rule for example.com is the one to show and edit.
 const matched = coverFor(tabHost, stored).site
 if (matched) {
@@ -429,3 +435,9 @@ renderScope()
 renderMode()
 renderStrike()
 setInterval(updateClock, 1000)
+// The companion says it holds the system's clock a moment after a change: show it when it does.
+chrome.storage.onChanged.addListener(({ systemZone }) => {
+  if (!systemZone) return
+  stored.systemZone = systemZone.newValue
+  renderStrike()
+})
