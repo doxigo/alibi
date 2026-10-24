@@ -169,10 +169,15 @@ func install(sys system, out io.Writer, force, timezone bool) error {
 	if len(targets) == 0 {
 		return errors.New("found no supported browser for this user. Open Chrome, Chromium, Brave, Edge or Vivaldi once, then run install again")
 	}
-	// Another program may answer to the same name (Whereabouts, one day). Don't take its place unasked.
+	// Another program may answer to the same name (Whereabouts, one day). Don't take its place unasked,
+	// nor a registration that can't be read to tell.
 	if !force {
 		for _, t := range targets {
-			if owner, _ := t.owner(); owner != "" && !samePath(owner, l.owner) {
+			owner, err := t.owner()
+			switch {
+			case err != nil:
+				return fmt.Errorf("couldn't read what %s starts for %s: %v. Run install --force to register anyway", t.browser(), hostName, err)
+			case owner != "" && !samePath(owner, l.owner):
 				return fmt.Errorf("%s already starts another program for %s (%s). Run install --force to replace it", t.browser(), hostName, owner)
 			}
 		}
