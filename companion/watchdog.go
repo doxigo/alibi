@@ -14,10 +14,13 @@ import (
 
 // settings is what the tray lets you choose. Saved as settings.json in the companion's folder.
 type settings struct {
-	Sync     bool `json:"timezoneSync"` // keep Windows on the VPN's time zone
-	Alerts   bool `json:"alerts"`       // notify when the connection isn't where it should be
-	Sound    bool `json:"sound"`
-	EdgeLine bool `json:"edgeLine"` // a red line along the top of the screen while something's wrong
+	Sync bool `json:"timezoneSync"` // keep Windows on the VPN's time zone
+	// With Sync on, a place Alibi has for all sites moves Windows there instead. Off by default: it
+	// moves everything on the computer, not just the browser.
+	FollowAlibi bool `json:"followAlibi"`
+	Alerts      bool `json:"alerts"` // notify when the connection isn't where it should be
+	Sound       bool `json:"sound"`
+	EdgeLine    bool `json:"edgeLine"` // a red line along the top of the screen while something's wrong
 	// The country that counts as "home", where the connection coming out means the VPN is off.
 	// Empty: the country of the time zone Windows had before the companion.
 	Home string `json:"homeCountry,omitempty"`
