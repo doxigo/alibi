@@ -3,8 +3,6 @@ package main
 import (
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -465,7 +463,7 @@ func (t *trayApp) showMenu(hwnd uintptr) {
 	add(check(startsAtSignIn), cmdStartup, "Start when I sign in")
 	separator()
 	if autoTimeZone() {
-		add(0, cmdAutoTZ, "Turn off Windows' automatic time zone…")
+		add(0, cmdAutoTZ, "Switch off Windows' automatic time zone…")
 	}
 	add(0, cmdCheckPage, "Open the check page")
 	add(0, cmdFolder, "Open the companion's folder")
@@ -521,15 +519,7 @@ func (t *trayApp) command(cmd int) {
 			t.sys.registry.setValue(runKey, runName, `"`+t.l.agent.exe+`" agent`)
 		}
 	case cmdAutoTZ:
-		go func() {
-			if err := turnOffAutoTimeZone(t.hwnd); err != nil {
-				t.logf("%v", err)
-				return
-			}
-			os.WriteFile(filepath.Join(t.l.dir, autoTimeZoneMarker), nil, 0o644)
-			t.logf("turned off Windows' automatic time zone")
-			t.lookNow()
-		}()
+		openDateTimeSettings() // the switch is yours: Windows asks an administrator to change it
 	case cmdCheckPage:
 		shellOpen(checkPage)
 	case cmdFolder:
