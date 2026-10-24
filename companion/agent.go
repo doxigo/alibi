@@ -554,6 +554,12 @@ func (g *agent) settle(found cover, have bool, w *wish) (cover, string, string) 
 			g.letGoLocked()
 		}
 	}
+	if h := g.homeLocked(); have && !g.dryRun && h.SetOn == "" && found.Country != "" && found.Country == g.homeCountryLocked() {
+		// The first connection seen in your own country is home's. GeoJS can put your own ISP in
+		// another zone of a big country, and that alone mustn't move the clock.
+		h.SetOn = found.Timezone
+		g.saveHomeLocked()
+	}
 	home := g.homeLocked().setting
 	var want setting
 	var err error
