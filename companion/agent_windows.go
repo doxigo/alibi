@@ -282,6 +282,19 @@ func (a windowsAgent) stop() error {
 	return errors.New("the time zone agent didn't stop")
 }
 
+// quitEvent is the event install, update and uninstall set to stop the agent, reset for this one. An
+// earlier stop() may still hold it, perhaps still set: x/sys hands that back as ERROR_ALREADY_EXISTS,
+// with a good handle, which is no failure.
+func quitEvent(name string) (windows.Handle, error) {
+	n, _ := windows.UTF16PtrFromString(name)
+	quit, err := windows.CreateEvent(nil, 1, 0, n)
+	if err != nil && !errors.Is(err, windows.ERROR_ALREADY_EXISTS) {
+		return 0, err
+	}
+	windows.ResetEvent(quit)
+	return quit, nil
+}
+
 // agentCommand is `alibi-companion agent`: the hidden program Windows starts at sign-in.
 // With --dry-run it looks once and prints what it would set, changing nothing.
 func agentCommand(sys system, options []string, stderr io.Writer) error {
@@ -322,13 +335,11 @@ func agentCommand(sys system, options []string, stderr io.Writer) error {
 		return err
 	}
 	defer windows.CloseHandle(mutex)
-	quitName, _ := windows.UTF16PtrFromString(agentQuitName)
-	quit, err := windows.CreateEvent(nil, 1, 0, quitName)
+	quit, err := quitEvent(agentQuitName)
 	if err != nil {
 		return err
 	}
 	defer windows.CloseHandle(quit)
-	windows.ResetEvent(quit) // left set by an earlier stop that's still holding it
 
 	// The window, and so the tray, belong to this thread for as long as it runs.
 	runtime.LockOSThread()

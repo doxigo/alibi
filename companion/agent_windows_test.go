@@ -45,3 +45,27 @@ func TestOneAgentKeepsTheClock(t *testing.T) {
 		t.Error("the second agent didn't get the clock once the first let go")
 	}
 }
+
+// An earlier stop() still holding the quit event, set, doesn't keep the next agent from starting,
+// nor stop it at once.
+func TestQuitEventLeftSetByAnEarlierStop(t *testing.T) {
+	name := `Local\AlibiCompanionQuitTest` + t.Name()
+	n, _ := windows.UTF16PtrFromString(name)
+	held, err := windows.CreateEvent(nil, 1, 1, n) // set, and still open
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer windows.CloseHandle(held)
+	quit, err := quitEvent(name)
+	if err != nil {
+		t.Fatalf("the agent wouldn't start: %v", err)
+	}
+	defer windows.CloseHandle(quit)
+	if r, _ := windows.WaitForSingleObject(quit, 0); r != uint32(windows.WAIT_TIMEOUT) {
+		t.Error("the agent would stop as soon as it started")
+	}
+	windows.SetEvent(held) // install asks it to go
+	if r, _ := windows.WaitForSingleObject(quit, 0); r != windows.WAIT_OBJECT_0 {
+		t.Error("the agent doesn't hear install asking it to go")
+	}
+}
