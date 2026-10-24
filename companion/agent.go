@@ -164,8 +164,12 @@ type homeState struct {
 	setting
 	Held *setting `json:"held,omitempty"`
 	// Where the connection comes out at home: home's zone's country when it was first recorded. A zone
-	// you set yourself later doesn't change it, so that connection still counts as home.
+	// you set yourself later doesn't change it. The tray's alerts go by it.
 	Country string `json:"country,omitempty"`
+	// The zone GeoJS gave the connection when you set home's zone yourself, there in your home country:
+	// on that connection Windows keeps home's own setting, so what you set stays, rather than going to
+	// GeoJS's idea of the zone. An exit elsewhere in the country, in another zone, still moves it.
+	SetOn   string `json:"setOn,omitempty"`
 	Version int    `json:"version"` // 0: written before held was, when home was recorded once and kept
 }
 
@@ -301,8 +305,25 @@ func (g *agent) noticeLocked() {
 		return
 	}
 	g.logf("Windows was set to %s, region %s, by something else, so that's home now", now.Zone, now.Region)
-	*h = homeState{setting: now, Country: h.Country, Version: 1}
+	setOn := h.SetOn
+	if g.have && g.found.Country != "" && g.found.Country == g.homeCountryLocked() {
+		setOn = g.found.Timezone
+	}
+	*h = homeState{setting: now, Country: h.Country, SetOn: setOn, Version: 1}
 	g.saveHomeLocked()
+}
+
+// sameWindowsZone reports whether two zone names are one Windows zone.
+func (g *agent) sameWindowsZone(a, b string) bool {
+	if a == "" || b == "" {
+		return false
+	}
+	wa, err := g.sys.windowsZone(a)
+	if err != nil {
+		return false
+	}
+	wb, err := g.sys.windowsZone(b)
+	return err == nil && wa == wb
 }
 
 // letGoLocked puts the system back home, once, if it's still where the agent left it, and from then on
@@ -395,9 +416,9 @@ func (g *agent) settle(found cover, have bool, w *wish) (cover, string, string) 
 	switch {
 	case place == "" && !have:
 		return found, "", "" // nothing to aim at before the first answer
-	case place == "" && found.Country != "" && found.Country == g.homeCountryLocked():
-		// Home's own setting, whatever GeoJS calls the zone, so a home you set yourself stays.
-		want, why = home, fmt.Sprintf("connection comes out at home (%s)", found.Country)
+	case place == "" && g.sameWindowsZone(found.Timezone, g.homeLocked().SetOn):
+		// The connection you set your own zone on: home's own setting, whatever GeoJS calls the zone.
+		want, why = home, fmt.Sprintf("connection comes out where you set your own time zone (%s)", found.Timezone)
 	case place == "":
 		want, err = wanted(g.sys, found, home)
 		why = fmt.Sprintf("connection comes out in %s (%s)", found.Timezone, found.Country)
@@ -535,7 +556,7 @@ func loadHome(sys zoneSystem, path string) (homeState, error) {
 	case err != nil && !errors.Is(err, os.ErrNotExist) && !errors.Is(err, errNoHome):
 		return homeState{}, err
 	default:
-		h = homeState{setting: now, Country: h.Country}
+		h = homeState{setting: now, Country: h.Country, SetOn: h.SetOn}
 	}
 	if h.Country == "" {
 		h.Country = countryOf(sys, h.setting)

@@ -24,6 +24,7 @@ var windowsZoneOf = map[string]string{
 	"Europe/Oslo": "W. Europe Standard Time", "Europe/Berlin": "W. Europe Standard Time",
 	"America/Detroit": "Eastern Standard Time", "America/New_York": "Eastern Standard Time",
 	"Asia/Dushanbe": "West Asia Standard Time", "Asia/Tokyo": "Tokyo Standard Time", "Asia/Tehran": "Iran Standard Time",
+	"America/Los_Angeles": "Pacific Standard Time", "America/Chicago": "Central Standard Time",
 }
 
 func (f *fakeZones) zone() (string, error)   { return f.zoneNow, nil }
@@ -63,6 +64,10 @@ func (f *fakeZones) ianaZone(windowsID, region string) (string, error) {
 		return "Asia/Tashkent", nil
 	case "Eastern Standard Time":
 		return "America/New_York", nil
+	case "Pacific Standard Time":
+		return "America/Los_Angeles", nil
+	case "Central Standard Time":
+		return "America/Chicago", nil
 	case "Tokyo Standard Time":
 		return "Asia/Tokyo", nil
 	case "Iran Standard Time":
@@ -472,6 +477,33 @@ func TestTheAgentsOwnChangeIsNotHome(t *testing.T) {
 	h := readHomeFile(t, g.homeFile)
 	if h.setting != home || h.Held == nil || *h.Held != tajik {
 		t.Errorf("home.json %+v, want home %v holding %v", h, home, tajik)
+	}
+}
+
+// An exit in your own country, but in another zone (a US VPN server across the country), still moves
+// Windows: only the connection you set your own zone on keeps it.
+func TestAnExitInAnotherZoneAtHomeStillMoves(t *testing.T) {
+	g, f, _ := newAgent(t)
+	f.zoneNow, f.regionNow = "Eastern Standard Time", "US"
+	g.home = setting{"Eastern Standard Time", "US"}
+	g.homeFile = filepath.Join(t.TempDir(), "home.json")
+	g.found, g.have = exit("America/Los_Angeles", "US"), true
+	g.reassert()
+	if f.zoneNow != "Pacific Standard Time" {
+		t.Fatalf("Windows on %s, want the exit's Pacific", f.zoneNow)
+	}
+	f.zoneNow = "Eastern Standard Time" // you set your own back, on that same connection
+	g.reassert()
+	if f.zoneNow != "Eastern Standard Time" {
+		t.Errorf("your zone was put back to %s", f.zoneNow)
+	}
+	if h := readHomeFile(t, g.homeFile); h.SetOn != "America/Los_Angeles" || h.Held != nil {
+		t.Errorf("home.json %+v", h)
+	}
+	g.found = exit("America/Chicago", "US") // another exit, another zone: it moves again
+	g.reassert()
+	if f.zoneNow != "Central Standard Time" {
+		t.Errorf("Windows on %s, want Central", f.zoneNow)
 	}
 }
 
