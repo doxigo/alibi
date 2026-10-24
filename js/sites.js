@@ -25,6 +25,17 @@ export const languagesFor = (locale) => [...new Set([locale, locale.split('-')[0
 
 export const isActive = ({ timezone, locale, lat, lon }) => !!(timezone || locale || lat || lon)
 
+// Whether two zone names are one zone as the browser names it: Asia/Kolkata and Asia/Calcutta are.
+export const sameZone = (a, b) => {
+  if (!a || !b) return false
+  try {
+    const named = (zone) => new Intl.DateTimeFormat('en-US', { timeZone: zone }).resolvedOptions().timeZone
+    return named(a) === named(b)
+  } catch {
+    return false
+  }
+}
+
 // "Match my IP address": where GeoJS places this connection, as a cover.
 // GeoJS: free, no key, HTTPS, so the lookup can't be read or altered on the way.
 export const ipCover = async () => {

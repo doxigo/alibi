@@ -68,9 +68,21 @@ execFileSync('node', ['--no-warnings', '--input-type=module', '-e', `
 `], { stdio: 'inherit', env: { ...process.env, TZ: 'Europe/Oslo' } })
 console.log('ok IP cover leaves a matching zone live')
 
+// The system names its zone the way the browser does: on Asia/Kolkata it says Asia/Calcutta. An IP
+// cover on Asia/Kolkata (GeoJS's name) still counts as matching.
+execFileSync('node', ['--no-warnings', '--input-type=module', '-e', `
+  import assert from 'node:assert/strict'
+  assert.equal(Intl.DateTimeFormat().resolvedOptions().timeZone, 'Asia/Calcutta')
+  const { default: s } = await import(${JSON.stringify(new URL('../js/stealth.js', import.meta.url).href)})
+  const native = Date
+  s({ configuration: 'ipAddress', timezone: 'Asia/Kolkata' })
+  assert.equal(Date, native)
+`], { stdio: 'inherit', env: { ...process.env, TZ: 'Asia/Kolkata' } })
+console.log('ok zone names compare as the browser names them')
+
 // "Match my IP address" covers move with the connection; every other cover stays put.
 globalThis.chrome = { runtime: { getManifest: () => ({ permissions: [] }) } }
-const { checkedCover, followIp, followsIp } = await import('../js/sites.js')
+const { checkedCover, followIp, followsIp, sameZone } = await import('../js/sites.js')
 const stockholm = { timezone: 'Europe/Stockholm', locale: 'sv-SE', lat: 59.33, lon: 18.07 }
 const oslo = { configuration: 'ipAddress', timezone: 'Europe/Oslo', locale: 'nb-NO', lat: 59.91, lon: 10.75 }
 const tokyo = { configuration: 'tokyo', timezone: 'Asia/Tokyo', locale: 'ja-JP' }
@@ -85,3 +97,7 @@ assert.deepEqual(checkedCover({ timezone: 'Europe/Stockholm', locale: 'sv-SE' })
 assert.throws(() => checkedCover({ timezone: 'Mars/Olympus', locale: 'sv-SE' }))
 assert.throws(() => checkedCover({ locale: 'sv-SE' }))
 console.log('ok match my IP')
+
+assert.ok(sameZone('Asia/Kolkata', 'Asia/Calcutta') && sameZone('Europe/Kyiv', 'Europe/Kiev') && !sameZone('America/Detroit', 'America/New_York'))
+assert.ok(!sameZone(null, 'Asia/Tokyo') && !sameZone('Mars/Olympus', 'Mars/Olympus'))
+console.log('ok zones match by name')
