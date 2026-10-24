@@ -509,6 +509,8 @@ func TestHostAnswersAlibiAndExitsWhenThePortCloses(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("XDG_DATA_HOME", "")
 	t.Setenv("XDG_CONFIG_HOME", "")
+	// The tray follows Alibi's location, so on Windows the host takes covers.
+	saveSettings(filepath.Join(local, "Programs", "Alibi Companion", "settings.json"), settings{Sync: true, FollowAlibi: true})
 
 	stdinR, stdinW := io.Pipe()
 	stdoutR, stdoutW := io.Pipe()
@@ -560,6 +562,73 @@ func TestHostAnswersAlibiAndExitsWhenThePortCloses(t *testing.T) {
 	// Its cover goes with it: the agent stops following a browser that's closed, or an Alibi removed.
 	if left, _ := filepath.Glob(filepath.Join(covers, "*")); len(left) > 0 {
 		t.Errorf("the host left %v behind", left)
+	}
+}
+
+// The host takes covers only while the tray follows Alibi's location, so Alibi doesn't hold the port
+// open for nothing. Switched on in the tray, Alibi hears hello again, now taking them.
+func TestHostSaysHelloAgainWhenTheTraySwitches(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("only Windows has a tray that follows Alibi")
+	}
+	every := settingsEvery
+	settingsEvery = 20 * time.Millisecond
+	t.Cleanup(func() { settingsEvery = every })
+	local := t.TempDir()
+	t.Setenv("LOCALAPPDATA", local)
+	t.Setenv("ALIBI_COMPANION_GEOJS_URL", "http://127.0.0.1:9") // nothing is looked up anyway
+	path := filepath.Join(local, "Programs", "Alibi Companion", "settings.json")
+	saveSettings(path, settings{Sync: true})
+
+	stdinR, stdinW := io.Pipe()
+	stdoutR, stdoutW := io.Pipe()
+	exit := make(chan int, 1)
+	go func() { exit <- run([]string{extensionOrigin}, stdinR, stdoutW, io.Discard) }()
+	frames := make(chan map[string]any)
+	go func() {
+		for {
+			var size uint32
+			if binary.Read(stdoutR, binary.NativeEndian, &size) != nil {
+				close(frames)
+				return
+			}
+			body := make([]byte, size)
+			io.ReadFull(stdoutR, body)
+			var m map[string]any
+			json.Unmarshal(body, &m)
+			frames <- m
+		}
+	}()
+	hello := func() []any {
+		for {
+			select {
+			case m := <-frames:
+				if m["hello"] != nil {
+					accepts, _ := m["accepts"].([]any)
+					return accepts
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatal("no hello")
+			}
+		}
+	}
+	if accepts := hello(); len(accepts) != 0 {
+		t.Fatalf("takes covers with Follow Alibi's location off: %v", accepts)
+	}
+	writeFrame(stdinW, []byte(`{"following":false}`))
+	saveSettings(path, settings{Sync: true, FollowAlibi: true})
+	if accepts := hello(); len(accepts) != 1 || accepts[0] != "cover" {
+		t.Errorf("after switching it on, accepts %v", accepts)
+	}
+	stdinW.Close()
+	go func() {
+		for range frames {
+		}
+	}()
+	select {
+	case <-exit:
+	case <-time.After(5 * time.Second):
+		t.Fatal("host still running after the port closed")
 	}
 }
 

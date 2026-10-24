@@ -34,16 +34,42 @@ func host(origin string, stdin io.Reader, stdout, stderr io.Writer) int {
 	sys := defaultSystem()
 	l, layoutErr := currentLayout(sys)
 	s := &sender{out: stdout}
-	// Only an agent can keep the system's clock on Alibi's location, and only Windows has one.
-	takesCovers := layoutErr == nil && l.agent != nil
-	if err := s.hello(takesCovers); err != nil {
+	// Covers go to an agent that keeps the system's clock on Alibi's location: only Windows has one, and
+	// only while its tray follows Alibi. Otherwise Alibi would hold the port open for nothing. If the
+	// tray's switches change, Alibi hears hello again, and opens or closes the port to suit.
+	hasAgent := layoutErr == nil && l.agent != nil
+	takes := func() bool { return hasAgent && loadSettings(l.agent.settings).followsAlibi() }
+	var takesCovers atomic.Bool
+	takesCovers.Store(takes())
+	if err := s.hello(takesCovers.Load()); err != nil {
 		logger.Print(err)
 		return 1
 	}
 	word := newFollowWord(olderAlibiAfter)
 	me := thisProcess()
-	if takesCovers {
+	if hasAgent {
 		defer forgetCover(l.agent.covers, me) // the agent stops following this browser's cover
+		go func() {
+			tick := time.NewTicker(settingsEvery)
+			defer tick.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-tick.C:
+				}
+				if now := takes(); now != takesCovers.Load() {
+					takesCovers.Store(now)
+					if !now {
+						forgetCover(l.agent.covers, me)
+					}
+					if err := s.hello(now); err != nil {
+						cancel()
+						return
+					}
+				}
+			}
+		}()
 	}
 	var keepFailed atomic.Bool
 	// stdin closing means the browser closed the port.
@@ -52,7 +78,7 @@ func host(origin string, stdin io.Reader, stdout, stderr io.Writer) int {
 			if on, ok := followingIn(message); ok {
 				word.set(on)
 			}
-			if !takesCovers {
+			if !takesCovers.Load() {
 				return
 			}
 			w, err := parseCover(message)
@@ -112,8 +138,18 @@ func defaultWatch(lookup func(context.Context) (cover, error), logf func(string,
 // sender writes messages to the browser, and nothing it has already sent.
 type sender struct {
 	out    io.Writer
-	sent   []byte // the last place
+	mu     sync.Mutex // one frame at a time: a hello can go out while places do
+	sent   []byte     // the last place
 	system *string
+}
+
+func (s *sender) frame(message []byte) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := writeFrame(s.out, message); err != nil {
+		return fmt.Errorf("the browser stopped reading: %w", err)
+	}
+	return nil
 }
 
 func (s *sender) write(v any) error {
@@ -121,14 +157,11 @@ func (s *sender) write(v any) error {
 	if err != nil {
 		return err
 	}
-	if err := writeFrame(s.out, message); err != nil {
-		return fmt.Errorf("the browser stopped reading: %w", err)
-	}
-	return nil
+	return s.frame(message)
 }
 
-// hello tells Alibi what it's talking to: a companion that, on Windows, takes the All sites cover.
-// Whereabouts says no hello, so Alibi knows to send it nothing.
+// hello tells Alibi what it's talking to, and whether it takes the All sites cover now: on Windows, while
+// the tray follows Alibi's location. Whereabouts before doxigo/whereabouts#1 says no hello at all.
 func (s *sender) hello(takesCovers bool) error {
 	accepts := []string{}
 	if takesCovers {
@@ -145,8 +178,8 @@ func (s *sender) send(place cover) error {
 	if bytes.Equal(message, s.sent) {
 		return nil
 	}
-	if err := writeFrame(s.out, message); err != nil {
-		return fmt.Errorf("the browser stopped reading: %w", err)
+	if err := s.frame(message); err != nil {
+		return err
 	}
 	s.sent = message
 	return nil
@@ -167,6 +200,9 @@ func (s *sender) sendSystem(zone string) error {
 	s.system = &zone
 	return nil
 }
+
+// How often the host reads the tray's switches again, to tell Alibi when it starts or stops taking covers.
+var settingsEvery = 2 * time.Second
 
 // An Alibi that hasn't said within this long whether it follows the IP is one from before it said so,
 // which only ever opens the port while a cover follows the IP.
