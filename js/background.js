@@ -1,5 +1,8 @@
 import { applyDebugger, startChild } from './debugger.js'
-import { checkedCover, coverFor, followIp, followsIp, ipCover, isActive, languagesFor, sameZone, siteKey, userScriptsAvailable } from './sites.js'
+import {
+  checkedCover, coverFor, followIp, followsIp, holdsPlace, ipCover, isActive, languagesFor, sameZone, siteKey, systemCover,
+  userScriptsAvailable,
+} from './sites.js'
 import stealth from './stealth.js'
 
 const KEYS = ['useDebuggerApi', 'configuration', 'timezone', 'locale', 'lat', 'lon', 'sites']
@@ -73,44 +76,123 @@ let headerRulesReady = syncHeaderRules().catch(console.error)
 const syncHeaders = () => (headerRulesReady = headerRulesReady.then(syncHeaderRules).catch(console.error))
 
 // "Match my IP address" follows the connection. While any cover uses it, Alibi keeps a native port
-// open to Whereabouts, the companion Mac app, which reports each new VPN exit the moment it sees one.
-// The open port also keeps this worker alive. Without Whereabouts (not installed, not running, or a
+// open to Whereabouts, the companion Mac app, or on Windows and Linux to Alibi Companion (companion/),
+// which answers to the same name. Either one reports each new VPN exit the moment it sees one.
+// The open port also keeps this worker alive. Without them (not installed, not running, or a
 // store build without the permission) GeoJS is asked again every minute instead, so a new exit
 // moves the cover within a minute. Pages pick it up when they next load, except a time zone that
 // Whereabouts moves on the Mac, which reaches open pages live (see stealth.js).
+//
+// Alibi says whether it's following the IP ({ following }) the moment the port opens, so a companion
+// that looks the connection up itself asks GeoJS nothing while no cover needs it. A companion that can
+// also keep the system's own clock on Alibi's location (Whereabouts, Alibi Companion on Windows) says so
+// in its hello ({ hello, accepts: ['cover'] }). Alibi then sends it the All sites cover whenever it
+// changes ({ cover }), and keeps the port open while that cover is a place, which the companion holds
+// only for as long as the port stays open. It answers with the zone it holds the system on ({ system }),
+// which the popup shows; pages keep their own cover either way. One that says no hello, such as an
+// older Whereabouts, gets no cover, as before.
 const IP_ALARM = 'matchIp'
+const COMPANION_ALARM = 'companion' // retries the port while a place waits for a companion that isn't up
 const WHEREABOUTS = 'com.doxigo.whereabouts'
 let port = null
 let whereaboutsLive = false // Whereabouts has reported over `port`, so GeoJS stands down
+let heardHello = false // the host on `port` said hello
+let takesCovers = false // and takes the All sites cover
+let saidFollowing = null // what `port` was last told about following the IP
+let posted = null // the cover last sent over `port`, as JSON
+let probing = null // a timer while a port opened only to see whether a companion answers
 const applyIp = async (ip) => {
   // Read after the lookup, so a change made in the popup meanwhile isn't overwritten.
   const changes = followIp(await chrome.storage.local.get(['configuration', 'timezone', 'locale', 'lat', 'lon', 'sites']), ip)
   if (Object.keys(changes).length) await chrome.storage.local.set(changes)
 }
+const post = (message) => {
+  try {
+    port?.postMessage(message)
+  } catch {} // the port closed meanwhile
+}
+// Tells the host whether a cover follows the IP, and a companion that takes it the All sites cover,
+// whenever either changes.
+const tellCompanion = async () => {
+  if (!port) return
+  const stored = await chrome.storage.local.get(['configuration', 'timezone', 'locale', 'sites'])
+  const following = followsIp(stored)
+  if (following !== saidFollowing) {
+    saidFollowing = following
+    post({ following })
+  }
+  if (!takesCovers) return
+  const cover = systemCover(stored)
+  const json = JSON.stringify(cover)
+  if (json === posted) return
+  posted = json
+  post({ cover })
+}
+const hello = async ({ accepts }) => {
+  heardHello = true
+  takesCovers = Array.isArray(accepts) && accepts.includes('cover')
+  if ((await chrome.storage.local.get('companion')).companion !== takesCovers) await chrome.storage.local.set({ companion: takesCovers })
+  syncIpAlarm() // a place can now be held, or a port opened only to ask can close
+}
+// The zone the companion holds the system on, or null, for the popup to show.
+const systemHeld = async (zone) => {
+  const systemZone = typeof zone === 'string' && zone ? zone : null
+  if (((await chrome.storage.local.get('systemZone')).systemZone ?? null) !== systemZone) await chrome.storage.local.set({ systemZone })
+}
+const forgetPort = () => {
+  port = null
+  whereaboutsLive = heardHello = takesCovers = false
+  saidFollowing = posted = null
+  systemHeld(null)
+}
 const connectWhereabouts = () => {
   if (port || !chrome.runtime.connectNative) return
   port = chrome.runtime.connectNative(WHEREABOUTS)
   port.onMessage.addListener((message) => {
+    if (message?.hello) return hello(message)
+    if (message && 'system' in message) return systemHeld(message.system)
     const ip = checkedCover(message) // a malformed message throws and leaves the cover alone
     whereaboutsLive = true
     applyIp(ip)
   })
   port.onDisconnect.addListener(() => {
-    void chrome.runtime.lastError // not installed, or the app quit: the alarm takes over and retries
-    port = null
-    whereaboutsLive = false
+    // Not installed, or the app quit: the alarms take over and retry.
+    const missing = /not found/i.test(chrome.runtime.lastError?.message ?? '')
+    forgetPort()
+    if (missing) chrome.storage.local.remove('companion')
   })
+  tellCompanion()
+}
+const closePort = () => {
+  port?.disconnect() // fires no onDisconnect on this side
+  forgetPort()
+}
+// Opens the port for a moment to see whether a companion answers, and whether it takes the cover:
+// when the browser starts, when Alibi is installed or updated, and when a place is chosen while that's
+// still unknown. A host that's up but says no hello doesn't take it, until the next start asks again.
+const probeCompanion = () => {
+  if (port || probing || !chrome.runtime.connectNative) return
+  connectWhereabouts()
+  probing = setTimeout(async () => {
+    probing = null
+    if (port && !heardHello && (await chrome.storage.local.get('companion')).companion === undefined) {
+      await chrome.storage.local.set({ companion: false })
+    }
+    syncIpAlarm()
+  }, 3000)
 }
 const syncIpAlarm = async () => {
-  const following = followsIp(await chrome.storage.local.get(['configuration', 'sites']))
-  if (following) connectWhereabouts()
-  else if (port) {
-    port.disconnect() // fires no onDisconnect on this side
-    port = null
-    whereaboutsLive = false
-  }
+  const stored = await chrome.storage.local.get(['configuration', 'timezone', 'sites', 'companion'])
+  const following = followsIp(stored)
+  // A companion holds a place only while its port is open.
+  const holding = stored.companion === true && holdsPlace(stored)
+  if (following || holding) connectWhereabouts()
+  else if (port && !probing) closePort()
+  tellCompanion()
   if (!following) await chrome.alarms.clear(IP_ALARM)
   else if (!(await chrome.alarms.get(IP_ALARM))) await chrome.alarms.create(IP_ALARM, { periodInMinutes: 1 })
+  if (following || !holding) await chrome.alarms.clear(COMPANION_ALARM)
+  else if (!(await chrome.alarms.get(COMPANION_ALARM))) await chrome.alarms.create(COMPANION_ALARM, { periodInMinutes: 1 })
   return following
 }
 const refreshIpCovers = async () => {
@@ -119,17 +201,31 @@ const refreshIpCovers = async () => {
   if (ip && !whereaboutsLive) await applyIp(ip) // Whereabouts may have answered meanwhile
 }
 syncIpAlarm() // alarms can be lost on update or restart
-chrome.alarms.onAlarm.addListener(({ name }) => name === IP_ALARM && refreshIpCovers())
-chrome.runtime.onStartup.addListener(refreshIpCovers) // Chrome may have started on another network
+chrome.alarms.onAlarm.addListener(({ name }) => {
+  if (name === IP_ALARM) refreshIpCovers()
+  if (name === COMPANION_ALARM) syncIpAlarm()
+})
+chrome.runtime.onStartup.addListener(() => {
+  refreshIpCovers() // Chrome may have started on another network
+  probeCompanion()
+})
 
-chrome.storage.onChanged.addListener(() => {
+// What only says how the companion is doing changes no cover, so nothing is synced again for it.
+const BOOKKEEPING = ['companion', 'systemZone']
+chrome.storage.onChanged.addListener((changes) => {
+  if (Object.keys(changes).every((key) => BOOKKEEPING.includes(key))) return
   settings = chrome.storage.local.get(KEYS)
   syncUserScript()
   syncHeaders()
   syncIpAlarm()
+  if (changes.configuration || changes.timezone) {
+    chrome.storage.local.get(['configuration', 'timezone', 'companion'])
+      .then((stored) => stored.companion === undefined && holdsPlace(stored) && probeCompanion())
+  }
 })
 
 chrome.runtime.onInstalled.addListener((details) => {
+  probeCompanion()
   if (details.reason === 'install') {
     chrome.tabs.create({
       active: true,
