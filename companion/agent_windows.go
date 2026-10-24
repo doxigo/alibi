@@ -429,7 +429,7 @@ func agentCommand(sys system, options []string, stderr io.Writer) error {
 	tray.onRelease = follower.release
 	// Signing out or shutting down: Windows goes back home, so the sign-in screen and whoever signs in
 	// next don't run on this user's location.
-	tray.onSessionEnd = follower.release
+	tray.onSessionEnd = follower.finish
 	if elsewhere {
 		running.Add(1)
 		go func() { // takes the clock once the other user's agent lets go of it
@@ -489,7 +489,7 @@ func agentCommand(sys system, options []string, stderr io.Writer) error {
 	// Quit from the tray: Windows goes back home until the next sign-in, unless something else has
 	// moved it since the agent did.
 	if tray.quitByUser {
-		follower.release()
+		follower.finish()
 	}
 	logger.Printf("stopped")
 	return nil
