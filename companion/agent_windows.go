@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -242,7 +241,8 @@ func agentCommand(sys system, options []string, stderr io.Writer) error {
 		}
 		w := readWish(l.agent.covers) // the place Alibi's running browsers ask for, if any
 		follows := loadSettings(l.agent.settings).FollowAlibi
-		agentConfig{sys: sys.zones, home: home, dryRun: true, logf: logger.Printf, followAlibi: func() bool { return follows }}.settle(place, true, w)
+		dry := &agent{agentConfig: agentConfig{sys: sys.zones, home: home, dryRun: true, logf: logger.Printf, followAlibi: func() bool { return follows }}}
+		dry.settle(place, true, w)
 		return nil
 	}
 
@@ -270,16 +270,16 @@ func agentCommand(sys system, options []string, stderr io.Writer) error {
 
 	// In UTC: the program's own idea of local time is fixed when it starts, and it moves the zone.
 	logger := log.New(openLog(l.agent.log), "", log.LstdFlags|log.LUTC)
-	home, err := loadHome(sys.zones, l.agent.home)
+	h, err := loadHome(sys.zones, l.agent.home)
 	if err != nil {
 		logger.Printf("couldn't record how Windows is set now: %v", err)
 		return err
 	}
-	homeZone, _ := sys.zones.ianaZone(baseZone(home.Zone), home.Region)
-	logger.Printf("started; home is %s, region %s (%s)", home.Zone, home.Region, homeZone)
+	homeZone, _ := sys.zones.ianaZone(baseZone(h.Zone), h.Region)
+	logger.Printf("started; home is %s, region %s (%s)", h.Zone, h.Region, homeZone)
 
 	tray := &trayApp{
-		l: l, sys: sys, home: home, homeZone: homeZone, settingsPath: l.agent.settings,
+		l: l, sys: sys, homeZone: homeZone, settingsPath: l.agent.settings,
 		settings: loadSettings(l.agent.settings), nudge: make(chan struct{}, 1), logf: logger.Printf,
 	}
 	if err := newTray(tray); err != nil {
@@ -318,7 +318,8 @@ func agentCommand(sys system, options []string, stderr io.Writer) error {
 	watch := defaultWatch(geo.lookup, logger.Printf)
 	watch.nudge = tray.nudge
 	follower := &agent{agentConfig: agentConfig{
-		watch: watch, sys: sys.zones, home: home, state: l.agent.state, logf: logger.Printf, sync: tray.syncOn, followAlibi: tray.followAlibiOn,
+		watch: watch, sys: sys.zones, home: h.setting, held: h.Held, homeIn: h.Country, homeFile: l.agent.home, state: l.agent.state, logf: logger.Printf,
+		sync: tray.syncOn, followAlibi: tray.followAlibiOn, homeCountry: tray.homeCountrySet,
 		report: func(r agentReport) {
 			if tray.report(r) {
 				select {
@@ -330,6 +331,7 @@ func agentCommand(sys system, options []string, stderr io.Writer) error {
 	}}
 	tray.onTimeChange = follower.reassert
 	tray.onSyncChange = follower.reassert
+	tray.onRelease = follower.release
 	// The place Alibi's running browsers ask for, as their hosts keep it: Windows follows it within a
 	// second of a change, and lets go within a second of the last of those browsers closing.
 	os.Remove(filepath.Join(l.dir, "wanted.json")) // where an earlier build kept one cover for every browser
@@ -359,32 +361,13 @@ func agentCommand(sys system, options []string, stderr io.Writer) error {
 	cancel()
 	running.Wait()
 	os.Remove(l.agent.state) // the host stops relaying at once, rather than after agentQuiet
-	// Quit from the tray: Windows goes back to how it was until the next sign-in.
-	if tray.quitByUser && tray.syncOn() {
-		if _, err := apply(sys.zones, home); err != nil {
-			logger.Printf("couldn't put the time zone back: %v", err)
-		} else {
-			logger.Printf("put Windows back on %s, region %s", home.Zone, home.Region)
-		}
+	// Quit from the tray: Windows goes back home until the next sign-in, unless something else has
+	// moved it since the agent did.
+	if tray.quitByUser {
+		follower.release()
 	}
 	logger.Printf("stopped")
 	return nil
-}
-
-// currentHome is the recorded home, or how the system is now if none was recorded yet.
-func currentHome(sys zoneSystem, path string) (setting, error) {
-	if b, err := os.ReadFile(path); err == nil {
-		var home setting
-		if json.Unmarshal(b, &home) == nil && home.Zone != "" {
-			return home, nil
-		}
-	}
-	zone, err := sys.zone()
-	if err != nil {
-		return setting{}, err
-	}
-	region, err := sys.region()
-	return setting{Zone: zone, Region: region}, err
 }
 
 // openLog appends to the agent's log, starting it over once it passes 1 MB.

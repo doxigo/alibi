@@ -99,8 +99,14 @@ func apply(sys zoneSystem, want setting) (bool, error) {
 type agentConfig struct {
 	watch watchConfig
 	sys   zoneSystem
-	home  setting
-	state string // where the agent writes its word for the host (agent.json)
+	// Home, what the agent last set the system to, if it holds it anywhere, and the country the
+	// connection comes out in at home, "" for home's zone's (home.json, homeState).
+	home   setting
+	held   *setting
+	homeIn string
+	// Where home and what's held are kept as they change; "" keeps them in memory only.
+	homeFile string
+	state    string // where the agent writes its word for the host (agent.json)
 	// Look and report what would change, without changing the system or writing the state.
 	dryRun bool
 	// Whether to move the system now (the tray can switch it off); nil means always.
@@ -108,6 +114,8 @@ type agentConfig struct {
 	// Whether a place Alibi has for all sites moves the system there (the tray's Follow Alibi's
 	// location); nil means never.
 	followAlibi func() bool
+	// The country set as home in the tray, if one is; otherwise home's zone says.
+	homeCountry func() string
 	// Told after every look and every change of Alibi's cover.
 	report func(agentReport)
 	logf   func(format string, args ...any)
@@ -115,11 +123,14 @@ type agentConfig struct {
 
 // agentReport is what the tray hears from the agent.
 type agentReport struct {
-	Place  cover  // the connection's place; empty before the first answer
-	Err    error  // why the last look failed, if it did
-	Wish   *wish  // Alibi's All sites cover; nil until Alibi says
-	System string // the zone the agent holds the system's clock on, as browsers read it; "" for none
-	Target string // the zone the system should read now, as browsers read it; "" when unknown
+	Place       cover   // the connection's place; empty before the first answer
+	Err         error   // why the last look failed, if it did
+	Wish        *wish   // the place Alibi's running browsers ask for; nil for none
+	System      string  // the zone the agent holds the system's clock on, as browsers read it; "" for none
+	Target      string  // the zone the system should read now, as browsers read it; "" when unknown
+	Home        setting // home as it stands now
+	HomeZone    string  // home's zone as browsers read it
+	HomeCountry string  // where the connection comes out when it's home
 }
 
 // runAgent keeps the system on the connection's place until ctx ends.
@@ -136,6 +147,19 @@ type agent struct {
 	have    bool
 	lastErr error
 	wish    *wish
+	h       *homeState // home as it stands, from agentConfig's at first
+}
+
+// homeState is home.json: how the system is set when the agent holds it nowhere, and what the agent
+// last set it to while it does. A setting that's neither was made by someone else (you, back from a
+// trip, or Windows' own automatic time zone), and becomes home.
+type homeState struct {
+	setting
+	Held *setting `json:"held,omitempty"`
+	// Where the connection comes out at home: home's zone's country when it was first recorded. A zone
+	// you set yourself later doesn't change it, so that connection still counts as home.
+	Country string `json:"country,omitempty"`
+	Version int    `json:"version"` // 0: written before held was, when home was recorded once and kept
 }
 
 func (g *agent) run(ctx context.Context) error {
@@ -158,7 +182,8 @@ func (g *agent) run(ctx context.Context) error {
 	})
 }
 
-// setWish takes Alibi's All sites cover, and moves the system's clock to it at once.
+// setWish takes the place Alibi's running browsers ask for, or nil for none, and moves the system's
+// clock at once.
 func (g *agent) setWish(w *wish) {
 	g.mu.Lock()
 	if g.wish != nil && w != nil && *g.wish == *w || g.wish == nil && w == nil {
@@ -185,6 +210,18 @@ func (g *agent) reassert() {
 	}
 }
 
+// release lets go of the system (letGoLocked), under the same lock as every move, so it can't cross
+// one already under way: when the tray stops following, and when the agent stops.
+func (g *agent) release() {
+	g.mu.Lock()
+	g.letGoLocked()
+	r := g.reportLocked("", "")
+	g.mu.Unlock()
+	if g.report != nil {
+		g.report(r)
+	}
+}
+
 // syncLocked moves the system where it should be now, writes the agent's word for the host, and
 // reports. The caller holds g.mu.
 func (g *agent) syncLocked() agentReport {
@@ -198,7 +235,101 @@ func (g *agent) syncLocked() agentReport {
 			g.logf("%v", err)
 		}
 	}
-	return agentReport{Place: place, Err: g.lastErr, Wish: g.wish, System: system, Target: target}
+	r := g.reportLocked(system, target)
+	r.Place = place
+	return r
+}
+
+func (g *agent) reportLocked(system, target string) agentReport {
+	h := g.homeLocked()
+	homeZone, _ := g.sys.ianaZone(baseZone(h.Zone), h.Region)
+	return agentReport{Err: g.lastErr, Wish: g.wish, System: system, Target: target, Home: h.setting, HomeZone: homeZone,
+		HomeCountry: g.homeCountryLocked()}
+}
+
+// homeLocked is home as it stands.
+func (g *agent) homeLocked() *homeState {
+	if g.h == nil {
+		g.h = &homeState{setting: g.home, Held: g.held, Country: g.homeIn, Version: 1}
+		if g.h.Country == "" {
+			g.h.Country = countryOf(g.sys, g.home)
+		}
+	}
+	return g.h
+}
+
+func (g *agent) saveHomeLocked() {
+	if g.homeFile == "" || g.dryRun {
+		return
+	}
+	if err := saveHome(g.homeFile, *g.homeLocked()); err != nil {
+		g.logf("couldn't save home: %v", err)
+	}
+}
+
+// noticeLocked takes a setting someone else made as home from now on. What the agent set itself is what
+// it holds, so that doesn't count.
+func (g *agent) noticeLocked() {
+	h := g.homeLocked()
+	now, err := currentSetting(g.sys)
+	if err != nil || h.Held != nil && now == *h.Held || h.Held == nil && now == h.setting {
+		return
+	}
+	g.logf("Windows was set to %s, region %s, by something else, so that's home now", now.Zone, now.Region)
+	*h = homeState{setting: now, Country: h.Country, Version: 1}
+	g.saveHomeLocked()
+}
+
+// letGoLocked puts the system back home, once, if it's still where the agent left it, and from then on
+// holds it nowhere: Windows is yours again. Moved since by someone else, it stays put, and that's home.
+func (g *agent) letGoLocked() {
+	g.noticeLocked()
+	h := g.homeLocked()
+	if h.Held == nil {
+		return
+	}
+	if _, err := apply(g.sys, h.setting); err != nil {
+		g.logf("couldn't put the time zone back: %v", err)
+		return
+	}
+	g.logf("put Windows back on %s, region %s", h.Zone, h.Region)
+	h.Held = nil
+	g.saveHomeLocked()
+}
+
+// holdLocked records what the agent has just set the system to: nothing held, when that's home.
+func (g *agent) holdLocked() {
+	h := g.homeLocked()
+	now, err := currentSetting(g.sys)
+	if err != nil {
+		return
+	}
+	held := &now
+	if now == h.setting {
+		held = nil
+	}
+	if (held == nil) == (h.Held == nil) && (held == nil || *held == *h.Held) {
+		return
+	}
+	h.Held = held
+	g.saveHomeLocked()
+}
+
+// homeCountryLocked is the country the connection comes out in when it's home: the one set in the
+// tray's settings, if any, or home's own.
+func (g *agent) homeCountryLocked() string {
+	if g.homeCountry != nil {
+		if c := g.homeCountry(); c != "" {
+			return c
+		}
+	}
+	return g.homeLocked().Country
+}
+
+// countryOf is the country of a setting's zone, as browsers name the zone.
+func countryOf(sys zoneSystem, s setting) string {
+	zone, _ := sys.ianaZone(baseZone(s.Zone), s.Region)
+	return zoneCountries[zone]
 }
 
 // placeOf is the zone of the place Alibi has for all sites, when the agent follows it; "" otherwise.
@@ -214,56 +345,69 @@ func (a agentConfig) placeOf(w *wish) string {
 }
 
 // settle moves the system's clock where it should be: to the place Alibi has for all sites, with
-// Follow Alibi's location on, or otherwise to where the connection comes out. It returns the
-// connection's place for the host, its zone as browsers now read it when the system's on it; the zone
-// it holds the system on, or ""; and the zone the system should read. Whenever the system isn't there,
-// the place keeps GeoJS's zone, so Alibi fakes it rather than showing the real one. With sync off it
-// leaves the system alone, but still says when it matches.
-func (a agentConfig) settle(found cover, have bool, w *wish) (cover, string, string) {
-	place := a.placeOf(w)
+// Follow Alibi's location on, or otherwise to where the connection comes out; exactly home when that's
+// the home country. It returns the connection's place for the host, its zone as browsers now read it
+// when the system's on it; the zone it holds the system on, or ""; and the zone the system should read.
+// Whenever the system isn't there, the place keeps GeoJS's zone, so Alibi fakes it rather than showing
+// the real one. With sync off it puts the system back home once, then leaves it alone, but still says
+// when it matches. The caller holds g.mu.
+func (g *agent) settle(found cover, have bool, w *wish) (cover, string, string) {
+	place := g.placeOf(w)
+	syncing := g.sync == nil || g.sync()
+	if !g.dryRun {
+		g.noticeLocked()
+		if !syncing {
+			g.letGoLocked()
+		}
+	}
+	home := g.homeLocked().setting
 	var want setting
 	var err error
 	var why string
 	switch {
 	case place == "" && !have:
 		return found, "", "" // nothing to aim at before the first answer
+	case place == "" && found.Country != "" && found.Country == g.homeCountryLocked():
+		// Home's own setting, whatever GeoJS calls the zone, so a home you set yourself stays.
+		want, why = home, fmt.Sprintf("connection comes out at home (%s)", found.Country)
 	case place == "":
-		want, err = wanted(a.sys, found, a.home)
+		want, err = wanted(g.sys, found, home)
 		why = fmt.Sprintf("connection comes out in %s (%s)", found.Timezone, found.Country)
 	default:
-		want, err = wanted(a.sys, cover{Timezone: place, Country: zoneCountries[place]}, a.home)
+		want, err = wanted(g.sys, cover{Timezone: place, Country: zoneCountries[place]}, home)
 		why = "Alibi's location is " + place
 	}
 	if err != nil {
-		a.logf("%v", err)
+		g.logf("%v", err)
 		return found, "", ""
 	}
-	expected, _ := a.sys.ianaZone(baseZone(want.Zone), want.Region)
-	if a.dryRun {
-		now := setting{}
-		now.Zone, _ = a.sys.zone()
-		now.Region, _ = a.sys.region()
-		a.logf("%s; Windows is on %s, region %s; would set %s, region %s, which browsers read as %s", why, now.Zone, now.Region, want.Zone, want.Region, expected)
+	expected, _ := g.sys.ianaZone(baseZone(want.Zone), want.Region)
+	if g.dryRun {
+		now, _ := currentSetting(g.sys)
+		g.logf("%s; Windows is on %s, region %s; would set %s, region %s, which browsers read as %s", why, now.Zone, now.Region, want.Zone, want.Region, expected)
 		return found, "", expected
 	}
-	syncing := a.sync == nil || a.sync()
 	changed := false
 	if syncing {
-		if changed, err = apply(a.sys, want); err != nil {
-			a.logf("%v", err)
+		changed, err = apply(g.sys, want)
+		if changed {
+			g.holdLocked() // what it set, even if only part of it took
+		}
+		if err != nil {
+			g.logf("%v", err)
 			return found, "", expected
 		}
 	}
-	reads, err := a.sys.hostZone()
+	reads, err := g.sys.hostZone()
 	if err != nil || reads == "" || reads != expected {
 		if syncing {
 			// Something set it back (Windows' "Set time zone automatically", say), or reads oddly.
-			a.logf("the system reads as %q, not %q, so Alibi keeps covering the zone", reads, expected)
+			g.logf("the system reads as %q, not %q, so Alibi keeps covering the zone", reads, expected)
 		}
 		return found, "", expected
 	}
 	if changed {
-		a.logf("%s: set Windows to %s, region %s, which browsers read as %s", why, want.Zone, want.Region, reads)
+		g.logf("%s: set Windows to %s, region %s, which browsers read as %s", why, want.Zone, want.Region, reads)
 	}
 	if place == "" {
 		found.Timezone = reads
@@ -272,6 +416,19 @@ func (a agentConfig) settle(found cover, have bool, w *wish) (cover, string, str
 		return found, "", expected
 	}
 	return found, reads, expected
+}
+
+// currentSetting is how the system is set now.
+func currentSetting(sys zoneSystem) (setting, error) {
+	zone, err := sys.zone()
+	if err != nil {
+		return setting{}, err
+	}
+	region, err := sys.region()
+	if err != nil {
+		return setting{}, err
+	}
+	return setting{Zone: zone, Region: region}, nil
 }
 
 func writeAgentState(path string, state agentState) error {
@@ -283,43 +440,83 @@ func writeAgentState(path string, state agentState) error {
 	return writeFileAtomic(path, b, 0o644)
 }
 
-// loadHome reads how the system was before the agent first changed it, saving that first if needed.
-func loadHome(sys zoneSystem, path string) (setting, error) {
-	if b, err := os.ReadFile(path); err == nil {
-		var home setting
-		if json.Unmarshal(b, &home) == nil && home.Zone != "" && home.Region != "" {
-			return home, nil
-		}
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return setting{}, err
+// errNoHome: home.json is there, but doesn't say how the system is at home.
+var errNoHome = errors.New("home.json doesn't say how the system is at home")
+
+func readHome(path string) (homeState, error) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return homeState{}, err
 	}
-	home := setting{}
-	var err error
-	if home.Zone, err = sys.zone(); err != nil {
-		return setting{}, err
+	var h homeState
+	if err := json.Unmarshal(b, &h); err != nil || h.Zone == "" || h.Region == "" {
+		return homeState{}, errNoHome
 	}
-	if home.Region, err = sys.region(); err != nil {
-		return setting{}, err
-	}
-	b, _ := json.MarshalIndent(home, "", "  ")
-	return home, writeFileAtomic(path, append(b, '\n'), 0o644)
+	return h, nil
 }
 
-// restoreHome puts the system back how it was before the agent, and forgets it.
+func saveHome(path string, h homeState) error {
+	h.Version = 1
+	b, _ := json.MarshalIndent(h, "", "  ")
+	return writeFileAtomic(path, append(b, '\n'), 0o644)
+}
+
+// loadHome is home as the agent starts. Unless the system is still where the agent left it, how it's
+// set now is home: on the first run, and after a change made while the agent wasn't running.
+func loadHome(sys zoneSystem, path string) (homeState, error) {
+	now, err := currentSetting(sys)
+	if err != nil {
+		return homeState{}, err
+	}
+	h, err := readHome(path)
+	switch {
+	case err == nil && h.Version == 0:
+		// Recorded once by an earlier agent, which held the system wherever it was from then on.
+		h.Held = &now
+		if now == h.setting {
+			h.Held = nil
+		}
+	case err == nil && h.Held != nil && *h.Held == now:
+	case err != nil && !errors.Is(err, os.ErrNotExist) && !errors.Is(err, errNoHome):
+		return homeState{}, err
+	default:
+		h = homeState{setting: now, Country: h.Country}
+	}
+	if h.Country == "" {
+		h.Country = countryOf(sys, h.setting)
+	}
+	h.Version = 1
+	return h, saveHome(path, h)
+}
+
+// currentHome is home as the agent last recorded it, or how the system is set now if it hasn't yet.
+// It changes nothing: only the agent records home.
+func currentHome(sys zoneSystem, path string) (setting, error) {
+	if h, err := readHome(path); err == nil {
+		return h.setting, nil
+	}
+	return currentSetting(sys)
+}
+
+// restoreHome puts the system back home, if it's still where the agent left it, and forgets home.
 func restoreHome(sys zoneSystem, path string) (setting, bool, error) {
-	b, err := os.ReadFile(path)
+	h, err := readHome(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return setting{}, false, nil
 	}
 	if err != nil {
 		return setting{}, false, err
 	}
-	var home setting
-	if err := json.Unmarshal(b, &home); err != nil || home.Zone == "" || home.Region == "" {
-		return setting{}, false, fmt.Errorf("%s doesn't say how the system was", path)
+	now, err := currentSetting(sys)
+	if err != nil {
+		return h.setting, false, err
 	}
-	if _, err := apply(sys, home); err != nil {
-		return home, false, err
+	// An earlier agent held the system for as long as it ran; a later one says what it holds.
+	held := (h.Version == 0 || h.Held != nil && *h.Held == now) && now != h.setting
+	if held {
+		if _, err := apply(sys, h.setting); err != nil {
+			return h.setting, false, err
+		}
 	}
-	return home, true, os.Remove(path)
+	return h.setting, held, os.Remove(path)
 }

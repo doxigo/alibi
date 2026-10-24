@@ -42,24 +42,25 @@ const checkPage = "https://doxigo.github.io/alibi/"
 type trayApp struct {
 	l            layout
 	sys          system
-	home         setting
-	homeZone     string // home's IANA zone, for its clock and its country
 	settingsPath string
 	nudge        chan struct{}
 	logf         func(string, ...any)
 	onTimeChange func() // when Windows says the time zone changed
-	onSyncChange func() // when the tray switches following Alibi's location on or off
+	onSyncChange func() // when the tray switches following the VPN or Alibi's location on or off
+	onRelease    func() // when it stops following: Windows goes back home
 
-	mu       sync.Mutex
-	settings settings
-	place    cover // the last place found
-	looked   bool
-	lookErr  error // the last look's failure, if it failed
-	leaks    leakReport
-	reads    string // the zone browsers read now
-	wish     *wish  // Alibi's All sites cover, once Alibi has said
-	system   string // the zone the agent holds Windows on, or ""
-	target   string // the zone Windows should read now
+	mu          sync.Mutex
+	homeZone    string // home's IANA zone, for its clock; the agent says when home moves
+	homeCountry string // where the connection comes out at home, as the agent says
+	settings    settings
+	place       cover // the last place found
+	looked      bool
+	lookErr     error // the last look's failure, if it failed
+	leaks       leakReport
+	reads       string // the zone browsers read now
+	wish        *wish  // Alibi's All sites cover, once Alibi has said
+	system      string // the zone the agent holds Windows on, or ""
+	target      string // the zone Windows should read now
 
 	// Only the window's thread touches these.
 	hwnd, edge     uintptr
@@ -192,28 +193,38 @@ func (t *trayApp) removeIcon() {
 
 // snapshot is what the agent last said, read once under the lock.
 type snapshot struct {
-	settings settings
-	place    cover
-	looked   bool
-	lookErr  error
-	leaks    leakReport
-	reads    string
-	wish     *wish
-	system   string
-	target   string
+	homeZone    string
+	homeCountry string
+	settings    settings
+	place       cover
+	looked      bool
+	lookErr     error
+	leaks       leakReport
+	reads       string
+	wish        *wish
+	system      string
+	target      string
 }
 
 func (t *trayApp) snapshot() snapshot {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	return snapshot{t.settings, t.place, t.looked, t.lookErr, t.leaks, t.reads, t.wish, t.system, t.target}
+	return snapshot{t.homeZone, t.homeCountry, t.settings, t.place, t.looked, t.lookErr, t.leaks, t.reads, t.wish, t.system, t.target}
+}
+
+// home is the country where the connection coming out means it's home.
+func (s snapshot) home() string {
+	if s.settings.Home != "" || s.homeCountry == "" {
+		return homeCountry(s.settings, s.homeZone)
+	}
+	return s.homeCountry
 }
 
 func (t *trayApp) judgeNow(s snapshot) (verdict, []string) {
 	if !s.looked {
 		return unknown, nil
 	}
-	return judge(s.place, s.leaks, homeCountry(s.settings, t.homeZone), s.settings)
+	return judge(s.place, s.leaks, s.home(), s.settings)
 }
 
 // updateIcon redraws the icon when its country or colour changed.
@@ -302,12 +313,12 @@ func placeName(p cover) string {
 }
 
 // homeClock is the time at home, with home's city: "21:18 in Tehran".
-func (t *trayApp) homeClock() string {
-	loc, err := time.LoadLocation(t.homeZone)
-	if err != nil || t.homeZone == "" {
+func homeClock(zone string) string {
+	loc, err := time.LoadLocation(zone)
+	if err != nil || zone == "" {
 		return ""
 	}
-	return time.Now().In(loc).Format("15:04") + " in " + strings.ReplaceAll(t.homeZone[strings.LastIndex(t.homeZone, "/")+1:], "_", " ")
+	return time.Now().In(loc).Format("15:04") + " in " + strings.ReplaceAll(zone[strings.LastIndex(zone, "/")+1:], "_", " ")
 }
 
 func (t *trayApp) tooltip() string {
@@ -316,7 +327,7 @@ func (t *trayApp) tooltip() string {
 	if s.looked {
 		parts = append(parts, placeName(s.place))
 	}
-	if clock := t.homeClock(); clock != "" {
+	if clock := homeClock(s.homeZone); clock != "" {
 		parts = append(parts, "home "+clock)
 	}
 	return strings.Join(parts, " · ")
@@ -354,7 +365,7 @@ func (t *trayApp) statusLines(s snapshot) []string {
 			lines = append(lines, "⚠  Windows says "+countryName(clock)+"; your connection comes out in "+countryName(s.place.Country))
 		}
 	}
-	home := homeCountry(s.settings, t.homeZone)
+	home := s.home()
 	switch {
 	case s.leaks.IPv6 == "":
 		lines = append(lines, "IPv6: checking…")
@@ -411,7 +422,7 @@ func (t *trayApp) showMenu(hwnd uintptr) {
 	if s.looked && s.lookErr != nil {
 		add(mfGrayed, 0, "Offline? The last look didn't get an answer")
 	}
-	if clock := t.homeClock(); clock != "" {
+	if clock := homeClock(s.homeZone); clock != "" {
 		add(mfGrayed, 0, "At home: "+clock)
 	}
 	separator()
@@ -470,12 +481,8 @@ func (t *trayApp) command(cmd int) {
 	case cmdSync:
 		s := t.toggle(func(s *settings) { s.Sync = !s.Sync })
 		go func() {
-			if !s.Sync { // off: Windows goes back to how it was
-				if _, err := apply(t.sys.zones, t.home); err != nil {
-					t.logf("couldn't put the time zone back: %v", err)
-				} else {
-					t.logf("following Alibi off: put Windows back on %s, region %s", t.home.Zone, t.home.Region)
-				}
+			if !s.Sync && t.onRelease != nil { // off: Windows goes back home, and is left alone
+				t.onRelease()
 			}
 			if t.onSyncChange != nil {
 				t.onSyncChange()
@@ -540,6 +547,12 @@ func (t *trayApp) report(r agentReport) bool {
 		t.place, t.looked = r.Place, true
 	}
 	t.lookErr, t.reads, t.wish, t.system, t.target = r.Err, reads, r.Wish, r.System, r.Target
+	if r.HomeZone != "" {
+		t.homeZone = r.HomeZone
+	}
+	if r.HomeCountry != "" {
+		t.homeCountry = r.HomeCountry
+	}
 	t.mu.Unlock()
 	procPostMessage.Call(t.hwnd, wmUpdate, 0, 0)
 	return moved
@@ -563,6 +576,13 @@ func (t *trayApp) syncOn() bool {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	return t.settings.Sync
+}
+
+// homeCountrySet is the country set as home in settings.json, if one is.
+func (t *trayApp) homeCountrySet() string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.settings.Home
 }
 
 func (t *trayApp) followAlibiOn() bool {

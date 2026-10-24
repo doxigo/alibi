@@ -212,8 +212,8 @@ func install(sys system, out io.Writer, force, timezone bool) error {
 	return nil
 }
 
-// setUpAgent puts the tray app in place, records how the time zone is set now so uninstalling can
-// put it back, lists the app in Settings > Apps, and starts it now and at every sign-in.
+// setUpAgent puts the tray app in place, lists it in Settings > Apps, and starts it now and at every
+// sign-in. Home is the agent's to record, as it starts: install changes nothing about the time zone.
 func setUpAgent(sys system, l layout, out io.Writer, timezone bool) error {
 	program, err := os.ReadFile(l.exe)
 	if err != nil {
@@ -226,9 +226,9 @@ func setUpAgent(sys system, l layout, out io.Writer, timezone bool) error {
 	if err := replaceProgram(l.dir, l.agent.exe, windowed); err != nil {
 		return fmt.Errorf("couldn't copy the tray app: %w", err)
 	}
-	home, err := loadHome(sys.zones, l.agent.home)
+	home, err := currentHome(sys.zones, l.agent.home)
 	if err != nil {
-		return fmt.Errorf("couldn't record how the time zone is set now: %w", err)
+		return fmt.Errorf("couldn't read how the time zone is set now: %w", err)
 	}
 	// A first install follows Alibi; an update keeps whatever you chose in the tray since. Only
 	// --no-timezone turns following off.
@@ -241,11 +241,6 @@ func setUpAgent(sys system, l layout, out io.Writer, timezone bool) error {
 	timezone = s.Sync
 	if err := saveSettings(l.agent.settings, s); err != nil {
 		return err
-	}
-	if !timezone {
-		if _, err := apply(sys.zones, home); err != nil {
-			return fmt.Errorf("couldn't put the time zone back: %w", err)
-		}
 	}
 	if err := registerApp(sys, l); err != nil {
 		return fmt.Errorf("couldn't list Alibi Companion in Settings > Apps: %w", err)
@@ -274,7 +269,7 @@ func setUpAgent(sys system, l layout, out io.Writer, timezone bool) error {
 			}
 		}
 	} else {
-		fmt.Fprintf(out, "Windows doesn't follow your VPN: it stays on %s, region %s. Turn it on from the tray.\n", home.Zone, home.Region)
+		fmt.Fprintf(out, "Windows doesn't follow your VPN: it goes back to %s, region %s, and stays there. Turn it on from the tray.\n", home.Zone, home.Region)
 	}
 	if err := sys.agent.start(l.agent.exe); err != nil {
 		return fmt.Errorf("couldn't start Alibi Companion: %w", err)
@@ -462,22 +457,18 @@ func agentStatus(sys system, l layout, out io.Writer) {
 	default:
 		fmt.Fprintln(out, "\nTray app: not set up")
 	}
-	sync := loadSettings(l.agent.settings).Sync && (running || atSignIn)
-	if sync {
-		fmt.Fprintln(out, "Follows Alibi's location: on")
-	} else {
-		fmt.Fprintln(out, "Follows Alibi's location: off")
-	}
+	s := loadSettings(l.agent.settings)
+	sync := s.Sync && (running || atSignIn)
+	onOff := map[bool]string{true: "on", false: "off"}
+	fmt.Fprintln(out, "Keeps Windows on your VPN's time zone: "+onOff[sync])
+	fmt.Fprintln(out, "Follows Alibi's location: "+onOff[sync && s.FollowAlibi])
 	if zone, err := sys.zones.zone(); err == nil {
 		region, _ := sys.zones.region()
 		reads, _ := sys.zones.hostZone()
 		fmt.Fprintf(out, "  Windows now:  %s, region %s, which browsers read as %s\n", zone, region, reads)
 	}
-	if b, err := os.ReadFile(l.agent.home); err == nil {
-		var home setting
-		if json.Unmarshal(b, &home) == nil {
-			fmt.Fprintf(out, "  Before sync:  %s, region %s\n", home.Zone, home.Region)
-		}
+	if h, err := readHome(l.agent.home); err == nil {
+		fmt.Fprintf(out, "  Home:         %s, region %s\n", h.Zone, h.Region)
 	}
 	if sync && sys.autoTZ != nil && sys.autoTZ.on() {
 		fmt.Fprintln(out, autoTimeZoneWarning)
