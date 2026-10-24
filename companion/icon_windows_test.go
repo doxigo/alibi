@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"golang.org/x/sys/windows"
 )
 
 // The icon draws, at every taskbar size, with see-through corners and an opaque middle.
@@ -63,5 +65,35 @@ func TestTrayIcon(t *testing.T) {
 			}
 			procDestroyIcon.Call(icon)
 		}
+	}
+}
+
+// Drawing the icon again and again, as every redraw does, leaves no GDI object behind: a font
+// deleted while still selected into the DC used to leak one each time.
+func TestTrayIconLeaksNothing(t *testing.T) {
+	getGuiResources := user32.NewProc("GetGuiResources")
+	gdiObjects := func() int {
+		n, _, _ := getGuiResources.Call(uintptr(windows.CurrentProcess()), 0) // GR_GDIOBJECTS
+		return int(n)
+	}
+	// Wide text at small sizes takes several fonts before one fits.
+	draw := func() {
+		for _, text := range []string{"TJ", "MW", "WWW"} {
+			for _, size := range []int{16, 32} {
+				icon, err := trayIcon(text, fine, size)
+				if err != nil {
+					t.Fatal(err)
+				}
+				procDestroyIcon.Call(icon)
+			}
+		}
+	}
+	draw() // anything GDI sets up once, the first time
+	before := gdiObjects()
+	for range 100 {
+		draw()
+	}
+	if after := gdiObjects(); after > before+2 {
+		t.Errorf("%d GDI objects after 100 icons, %d before", after, before)
 	}
 }
