@@ -596,6 +596,26 @@ func TestFollowingOffLetsGoOnce(t *testing.T) {
 	}
 }
 
+// At the end of the session the agent puts Windows home, and nothing moves it after that: not the
+// reassert its own time change broadcast queues, nor a look or a cover still on the way.
+func TestFinishedAgentMovesNothing(t *testing.T) {
+	g, f := newHomeAgent(t)
+	g.reassert() // on the VPN's zone
+	g.finish()
+	if f.zoneNow != home.Zone || f.regionNow != home.Region {
+		t.Fatalf("Windows on %s/%s, want home", f.zoneNow, f.regionNow)
+	}
+	f.calls = nil
+	g.reassert() // WM_TIMECHANGE from putting it back
+	g.setWish(&wish{Configuration: "tokyo", Timezone: "Asia/Tokyo"})
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	g.run(ctx)
+	cancel()
+	if len(f.calls) > 0 {
+		t.Errorf("a finished agent changed %v", f.calls)
+	}
+}
+
 // An agent that starts with following off, still holding what it set before, lets go of it once.
 func TestAnAgentStartingWithFollowingOffLetsGo(t *testing.T) {
 	g, f := newHomeAgent(t)

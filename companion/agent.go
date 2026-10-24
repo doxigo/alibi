@@ -155,6 +155,8 @@ type agent struct {
 	lastErr error
 	wish    *wish
 	h       *homeState // home as it stands, from agentConfig's at first
+	// finish has run: the agent has let go for good and moves nothing more, as the session ends or it quits.
+	finished bool
 }
 
 // homeState is home.json: how the system is set when the agent holds it nowhere, and what the agent
@@ -228,6 +230,23 @@ func (g *agent) release() {
 	if g.unsupported == nil && !g.clockElsewhere {
 		g.letGoLocked()
 	}
+	r := g.reportLocked("", "")
+	g.mu.Unlock()
+	if g.report != nil {
+		g.report(r)
+	}
+}
+
+// finish lets go of the system for good: Windows goes back home (letGoLocked), and from then on
+// nothing moves it. Putting it back broadcasts a time change, which the agent's own window hears and
+// queues a reassert for; that one, and any other still on its way, finds the agent finished and does
+// nothing. For the end of the session, and Quit.
+func (g *agent) finish() {
+	g.mu.Lock()
+	if g.unsupported == nil && !g.clockElsewhere && !g.finished {
+		g.letGoLocked()
+	}
+	g.finished = true
 	r := g.reportLocked("", "")
 	g.mu.Unlock()
 	if g.report != nil {
@@ -421,7 +440,7 @@ func (a agentConfig) placeOf(w *wish) string {
 // the real one. With sync off it puts the system back home once, then leaves it alone, but still says
 // when it matches. The caller holds g.mu.
 func (g *agent) settle(found cover, have bool, w *wish) (cover, string, string) {
-	if g.unsupported != nil || g.clockElsewhere {
+	if g.unsupported != nil || g.clockElsewhere || g.finished {
 		return found, "", ""
 	}
 	place := g.placeOf(w)
