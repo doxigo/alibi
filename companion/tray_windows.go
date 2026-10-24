@@ -354,7 +354,7 @@ func (t *trayApp) statusLines(s snapshot) []string {
 	held := s.settings.FollowAlibi && s.wish != nil && s.wish.namesPlace()
 	switch {
 	case t.unsupported != nil:
-		lines = append(lines, "Time zone sync needs Windows 10 version 1903 or later")
+		lines = append(lines, "Time zone sync isn't available on this Windows (see agent.log)")
 	case s.elsewhere:
 		lines = append(lines, "Another user's Alibi Companion keeps Windows' time zone now")
 	case s.reads == "":

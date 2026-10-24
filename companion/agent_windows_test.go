@@ -12,7 +12,7 @@ import (
 func TestSyncNeedsEveryFunction(t *testing.T) {
 	missing := windows.NewLazySystemDLL("icu.dll").NewProc("ucal_noSuchFunction")
 	err := allFound(ucalWindowsZone, missing)
-	if err == nil || !strings.Contains(err.Error(), "Windows 10 version 1903 or later") {
+	if err == nil || !strings.Contains(err.Error(), "isn't available on this Windows") || !strings.Contains(err.Error(), "ucal_noSuchFunction") {
 		t.Errorf("err = %v", err)
 	}
 	gone := windows.NewLazySystemDLL("no-such-library.dll").NewProc("anything")
@@ -25,9 +25,10 @@ func TestSyncNeedsEveryFunction(t *testing.T) {
 	}
 }
 
-// One agent at a time keeps the machine's clock; another gets it once the first lets go.
+// One agent at a time keeps the machine's clock; another gets it once the first lets go. The lock
+// lives in Global\, like the real one, which a program run by a standard user can create too.
 func TestOneAgentKeepsTheClock(t *testing.T) {
-	name := `Local\AlibiCompanionClockTest` + t.Name()
+	name := `Global\AlibiCompanionClockTest` + t.Name()
 	first, second := &clockLock{name: name}, &clockLock{name: name}
 	defer first.close()
 	defer second.close()
