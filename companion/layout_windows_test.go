@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -304,6 +305,35 @@ func TestWindowsReinstallReplacesTheProgram(t *testing.T) {
 		t.Fatal(err)
 	}
 	checkProgram(t, w.l.exe, "program 2")
+}
+
+// unreadableRegistry can't read one key, as when its permissions are off.
+type unreadableRegistry struct {
+	fakeRegistry
+	key string
+}
+
+func (r unreadableRegistry) value(key, name string) (string, bool, error) {
+	if strings.EqualFold(key, r.key) {
+		return "", false, errors.New("access denied")
+	}
+	return r.fakeRegistry.value(key, name)
+}
+
+// A registration it can't read could be another program's: install stops, unless told --force.
+func TestWindowsInstallStopsAtARegistrationItCantRead(t *testing.T) {
+	w := windowsSystem(t, fakeDownload(t, "program 1"))
+	w.sys.registry = unreadableRegistry{w.reg, chromeKey}
+	err := install(w.sys, &bytes.Buffer{}, false, true)
+	if err == nil || !strings.Contains(err.Error(), "--force") || !strings.Contains(err.Error(), "access denied") {
+		t.Fatalf("err %v", err)
+	}
+	if _, err := os.Stat(w.l.exe); err == nil {
+		t.Error("copied the program even though install stopped")
+	}
+	if err := install(w.sys, &bytes.Buffer{}, true, true); err != nil {
+		t.Fatalf("--force: %v", err)
+	}
 }
 
 func TestWindowsInstallLeavesAnotherProgramAlone(t *testing.T) {
