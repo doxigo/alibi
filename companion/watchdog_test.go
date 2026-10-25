@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -12,10 +13,10 @@ import (
 
 func TestSettings(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "settings.json")
-	if got := loadSettings(path); !got.Sync || !got.Alerts || !got.Sound || !got.EdgeLine {
+	if got := loadSettings(path); got.Sync || !got.Alerts || !got.Sound || !got.EdgeLine {
 		t.Errorf("defaults: %+v", got)
 	}
-	os.WriteFile(path, []byte(`{"sound": false, "allowedCountries": ["no", " se ", "bogus", "X1"], "homeCountry": "ir"}`), 0o644)
+	os.WriteFile(path, []byte(`{"sound": false, "timezoneSync": true, "allowedCountries": ["no", " se ", "bogus", "X1"], "homeCountry": "ir"}`), 0o644)
 	got := loadSettings(path)
 	if got.Sound || !got.Sync || !slices.Equal(got.Allowed, []string{"NO", "SE"}) || got.Home != "IR" {
 		t.Errorf("read back: %+v", got)
@@ -28,7 +29,7 @@ func TestSettings(t *testing.T) {
 		t.Errorf("round trip: %+v", again)
 	}
 	os.WriteFile(path, []byte(`not json`), 0o644)
-	if broken := loadSettings(path); broken.Sync != true {
+	if broken := loadSettings(path); !reflect.DeepEqual(broken, defaultSettings()) {
 		t.Errorf("a broken file should read as the defaults: %+v", broken)
 	}
 }

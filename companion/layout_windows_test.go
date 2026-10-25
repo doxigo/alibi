@@ -134,7 +134,7 @@ func TestWindowsLayout(t *testing.T) {
 func TestWindowsInstall(t *testing.T) {
 	w := windowsSystem(t, fakeDownload(t, "program 1"))
 	var out bytes.Buffer
-	if err := install(w.sys, &out, false, true); err != nil {
+	if err := install(w.sys, &out, false, zoneUnsaid); err != nil {
 		t.Fatal(err)
 	}
 	checkProgram(t, w.l.exe, "program 1")
@@ -150,15 +150,33 @@ func TestWindowsInstall(t *testing.T) {
 	}
 }
 
-// Install sets up the tray app: its program, settings, sign-in, Settings > Apps, and a start now,
-// with time zone sync on. It leaves the time zone, and home, to the agent.
+// Install sets up the tray app: its program, settings, Settings > Apps, and a start now. Like
+// Whereabouts on the Mac, keeping Windows on the VPN's time zone and starting at sign-in are both off
+// until you turn them on. It leaves the time zone, and home, to the agent.
 func TestWindowsInstallSetsUpTheTrayApp(t *testing.T) {
 	w := windowsSystem(t, fakeDownload(t, "program 1"))
 	var out bytes.Buffer
-	if err := install(w.sys, &out, false, true); err != nil {
+	if err := install(w.sys, &out, false, zoneUnsaid); err != nil {
 		t.Fatal(err)
 	}
 	checkProgram(t, w.l.agent.exe, "windowed program 1")
+	if _, atSignIn, _ := w.reg.value(runKey, runName); atSignIn {
+		t.Error("a plain install starts the tray at every sign-in")
+	}
+	if loadSettings(w.l.agent.settings).Sync {
+		t.Error("a plain install keeps Windows on the VPN's time zone")
+	}
+	for _, want := range []string{"runs in the tray", "Start when I sign in", "Windows' time zone stays yours (Iran Standard Time, region US)", "--timezone"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("output lacks %q:\n%s", want, out.String())
+		}
+	}
+	// --timezone turns it on; an update keeps a sign-in entry you turned on, pointed at the new copy.
+	w.reg.setValue(runKey, runName, `"C:\old\alibi-companion-agent.exe" agent`)
+	out.Reset()
+	if err := install(w.sys, &out, false, zoneOn); err != nil {
+		t.Fatal(err)
+	}
 	if run, _, _ := w.reg.value(runKey, runName); run != `"`+w.l.agent.exe+`" agent` {
 		t.Errorf("sign-in entry %q", run)
 	}
@@ -174,19 +192,19 @@ func TestWindowsInstallSetsUpTheTrayApp(t *testing.T) {
 			t.Errorf("Settings > Apps %s = %q, want %q", name, got, want)
 		}
 	}
-	if len(w.agent.started) != 1 || w.agent.started[0] != w.l.agent.exe {
+	if len(w.agent.started) != 2 || w.agent.started[1] != w.l.agent.exe {
 		t.Errorf("started %v", w.agent.started)
 	}
 	if _, err := os.Stat(w.l.agent.home); !os.IsNotExist(err) {
 		t.Error("install recorded home: only the agent holding the clock does that")
 	}
 	if !loadSettings(w.l.agent.settings).Sync {
-		t.Error("time zone sync off after a plain install")
+		t.Error("time zone sync off after install --timezone")
 	}
 	if len(w.zones.calls) > 0 {
 		t.Errorf("install itself changed the time zone: %v (that's the agent's job)", w.zones.calls)
 	}
-	for _, want := range []string{"runs in the tray", "Windows follows your VPN's time zone", "Iran Standard Time, region US"} {
+	for _, want := range []string{"starts every time you sign in", "Windows follows your VPN's time zone while a VPN is up", "Iran Standard Time, region US"} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("output lacks %q:\n%s", want, out.String())
 		}
@@ -197,12 +215,15 @@ func TestWindowsInstallSetsUpTheTrayApp(t *testing.T) {
 	s := loadSettings(w.l.agent.settings)
 	s.Sound = false
 	saveSettings(w.l.agent.settings, s)
-	if err := install(w.sys, &bytes.Buffer{}, false, true); err != nil {
+	if err := install(w.sys, &bytes.Buffer{}, false, zoneUnsaid); err != nil {
 		t.Fatal(err)
 	}
 	// Every install asks a running app to stop first (the first had none to stop).
-	if w.agent.stops != 2 || len(w.agent.started) != 2 || !w.agent.on {
+	if w.agent.stops != 3 || len(w.agent.started) != 3 || !w.agent.on {
 		t.Errorf("update: %d stops, %d starts, running %v", w.agent.stops, len(w.agent.started), w.agent.on)
+	}
+	if !loadSettings(w.l.agent.settings).Sync {
+		t.Error("an update without --timezone turned following off")
 	}
 	if h, err := readHome(w.l.agent.home); err != nil || h.setting != home || h.Held == nil {
 		t.Errorf("after the update, home.json %+v %v, want home %v, still held", h, err, home)
@@ -216,11 +237,11 @@ func TestWindowsInstallSetsUpTheTrayApp(t *testing.T) {
 // Windows back home as it starts (TestAnAgentStartingWithFollowingOffLetsGo), and home stays recorded.
 func TestWindowsInstallWithoutTimeZoneSync(t *testing.T) {
 	w := windowsSystem(t, fakeDownload(t, "program 1"))
-	install(w.sys, &bytes.Buffer{}, false, true)
+	install(w.sys, &bytes.Buffer{}, false, zoneOn)
 	w.agentMoved(t, setting{"W. Europe Standard Time", "NO"})
 	w.zones.calls = nil
 	var out bytes.Buffer
-	if err := install(w.sys, &out, false, false); err != nil {
+	if err := install(w.sys, &out, false, zoneOff); err != nil {
 		t.Fatal(err)
 	}
 	if loadSettings(w.l.agent.settings).Sync {
@@ -235,7 +256,7 @@ func TestWindowsInstallWithoutTimeZoneSync(t *testing.T) {
 	if _, err := os.Stat(w.l.agent.home); err != nil {
 		t.Error("home.json gone: turning sync on again later would lose the real home")
 	}
-	if !strings.Contains(out.String(), "Windows doesn't follow your VPN: it goes back to Iran Standard Time, region US") {
+	if !strings.Contains(out.String(), "Windows' time zone stays yours (Iran Standard Time, region US)") {
 		t.Errorf("output: %s", out.String())
 	}
 }
@@ -243,18 +264,18 @@ func TestWindowsInstallWithoutTimeZoneSync(t *testing.T) {
 // An update keeps the choice made in the tray: following switched off there stays off.
 func TestWindowsUpdateKeepsFollowingOff(t *testing.T) {
 	w := windowsSystem(t, fakeDownload(t, "program 1"))
-	install(w.sys, &bytes.Buffer{}, false, true)
+	install(w.sys, &bytes.Buffer{}, false, zoneOn)
 	s := loadSettings(w.l.agent.settings)
 	s.Sync = false // switched off in the tray
 	saveSettings(w.l.agent.settings, s)
 	var out bytes.Buffer
-	if err := install(w.sys, &out, false, true); err != nil {
+	if err := install(w.sys, &out, false, zoneUnsaid); err != nil {
 		t.Fatal(err)
 	}
 	if loadSettings(w.l.agent.settings).Sync {
 		t.Error("an update turned following back on")
 	}
-	if !strings.Contains(out.String(), "Windows doesn't follow your VPN") {
+	if !strings.Contains(out.String(), "Windows' time zone stays yours") {
 		t.Errorf("output: %s", out.String())
 	}
 }
@@ -266,7 +287,7 @@ func TestWindowsInstallOffersToTurnOffAutomaticTimeZone(t *testing.T) {
 	w.autoTZ.enabled = true
 	w.answering(true)
 	var out bytes.Buffer
-	if err := install(w.sys, &out, false, true); err != nil {
+	if err := install(w.sys, &out, false, zoneOn); err != nil {
 		t.Fatal(err)
 	}
 	if len(w.asked) != 1 || w.autoTZ.opened != 1 || !w.autoTZ.enabled {
@@ -280,7 +301,7 @@ func TestWindowsInstallOffersToTurnOffAutomaticTimeZone(t *testing.T) {
 	quiet := windowsSystem(t, fakeDownload(t, "program 1"))
 	quiet.autoTZ.enabled = true
 	out.Reset()
-	install(quiet.sys, &out, false, true)
+	install(quiet.sys, &out, false, zoneOn)
 	if quiet.autoTZ.opened != 0 || !strings.Contains(out.String(), "Set time zone automatically") {
 		t.Errorf("opened Settings %d times; output %s", quiet.autoTZ.opened, out.String())
 	}
@@ -289,11 +310,11 @@ func TestWindowsInstallOffersToTurnOffAutomaticTimeZone(t *testing.T) {
 func TestWindowsReinstallReplacesTheProgram(t *testing.T) {
 	self := fakeDownload(t, "program 1")
 	w := windowsSystem(t, self)
-	if err := install(w.sys, &bytes.Buffer{}, false, true); err != nil {
+	if err := install(w.sys, &bytes.Buffer{}, false, zoneUnsaid); err != nil {
 		t.Fatal(err)
 	}
 	os.WriteFile(self, []byte("program 2"), 0o755)
-	if err := install(w.sys, &bytes.Buffer{}, false, true); err != nil {
+	if err := install(w.sys, &bytes.Buffer{}, false, zoneUnsaid); err != nil {
 		t.Fatal(err)
 	}
 	checkProgram(t, w.l.exe, "program 2")
@@ -301,7 +322,7 @@ func TestWindowsReinstallReplacesTheProgram(t *testing.T) {
 
 	// Run again from the installed copy: nothing to copy, and the registrations stay.
 	w.sys.self = func() (string, error) { return strings.ToUpper(w.l.exe), nil }
-	if err := install(w.sys, &bytes.Buffer{}, false, true); err != nil {
+	if err := install(w.sys, &bytes.Buffer{}, false, zoneUnsaid); err != nil {
 		t.Fatal(err)
 	}
 	checkProgram(t, w.l.exe, "program 2")
@@ -324,14 +345,14 @@ func (r unreadableRegistry) value(key, name string) (string, bool, error) {
 func TestWindowsInstallStopsAtARegistrationItCantRead(t *testing.T) {
 	w := windowsSystem(t, fakeDownload(t, "program 1"))
 	w.sys.registry = unreadableRegistry{w.reg, chromeKey}
-	err := install(w.sys, &bytes.Buffer{}, false, true)
+	err := install(w.sys, &bytes.Buffer{}, false, zoneUnsaid)
 	if err == nil || !strings.Contains(err.Error(), "--force") || !strings.Contains(err.Error(), "access denied") {
 		t.Fatalf("err %v", err)
 	}
 	if _, err := os.Stat(w.l.exe); err == nil {
 		t.Error("copied the program even though install stopped")
 	}
-	if err := install(w.sys, &bytes.Buffer{}, true, true); err != nil {
+	if err := install(w.sys, &bytes.Buffer{}, true, zoneUnsaid); err != nil {
 		t.Fatalf("--force: %v", err)
 	}
 }
@@ -339,7 +360,7 @@ func TestWindowsInstallStopsAtARegistrationItCantRead(t *testing.T) {
 func TestWindowsInstallLeavesAnotherProgramAlone(t *testing.T) {
 	w := windowsSystem(t, fakeDownload(t, "program 1"))
 	w.reg.setValue(chromeKey, "", `C:\Program Files\Whereabouts\host.json`)
-	err := install(w.sys, &bytes.Buffer{}, false, true)
+	err := install(w.sys, &bytes.Buffer{}, false, zoneUnsaid)
 	if err == nil || !strings.Contains(err.Error(), "--force") {
 		t.Fatalf("install took over another program's registration (err %v)", err)
 	}
@@ -349,7 +370,7 @@ func TestWindowsInstallLeavesAnotherProgramAlone(t *testing.T) {
 	if len(w.agent.started) > 0 {
 		t.Error("started the tray app even though install stopped")
 	}
-	if err := install(w.sys, &bytes.Buffer{}, true, true); err != nil {
+	if err := install(w.sys, &bytes.Buffer{}, true, zoneUnsaid); err != nil {
 		t.Fatal(err)
 	}
 	if v, _, _ := w.reg.value(chromeKey, ""); v != w.l.manifest {
@@ -361,7 +382,7 @@ func TestWindowsUninstall(t *testing.T) {
 	w := windowsSystem(t, fakeDownload(t, "program 1"))
 	w.autoTZ.enabled = true
 	w.answering(true)
-	if err := install(w.sys, &bytes.Buffer{}, false, true); err != nil {
+	if err := install(w.sys, &bytes.Buffer{}, false, zoneOn); err != nil {
 		t.Fatal(err)
 	}
 	w.agentMoved(t, setting{"West Asia Standard Time", "TJ"})
@@ -398,7 +419,7 @@ func TestWindowsQuietUninstall(t *testing.T) {
 	w := windowsSystem(t, fakeDownload(t, "program 1"))
 	w.autoTZ.enabled = true
 	w.answering(true)
-	install(w.sys, &bytes.Buffer{}, false, true)
+	install(w.sys, &bytes.Buffer{}, false, zoneOn)
 	w.asked = nil
 	w.autoTZ.enabled = false
 	var out bytes.Buffer
@@ -422,7 +443,7 @@ func TestWindowsStatus(t *testing.T) {
 			t.Errorf("before install lacks %q:\n%s", want, before.String())
 		}
 	}
-	install(w.sys, &bytes.Buffer{}, false, true)
+	install(w.sys, &bytes.Buffer{}, false, zoneOn)
 	w.agentMoved(t, setting{"W. Europe Standard Time", "NO"})
 	var after bytes.Buffer
 	status(w.sys, &after, fakeLookup)

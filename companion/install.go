@@ -163,9 +163,18 @@ func samePath(a, b string) bool {
 	return a == b
 }
 
-// install puts the companion in place and registers it. On Windows it also sets up the tray app,
-// which starts now and at every sign-in; with timezone, it keeps Windows on the VPN's time zone.
-func install(sys system, out io.Writer, force, timezone bool) error {
+// zoneChoice is what install was told about keeping Windows on the VPN's time zone.
+type zoneChoice int
+
+const (
+	zoneUnsaid zoneChoice = iota // what the tray says; off on a first install, as Match time zone is on the Mac
+	zoneOn                       // --timezone
+	zoneOff                      // --no-timezone
+)
+
+// install puts the companion in place and registers it. On Windows it also sets up the tray app and
+// starts it; timezone says whether it keeps Windows on the VPN's time zone.
+func install(sys system, out io.Writer, force bool, timezone zoneChoice) error {
 	l, err := currentLayout(sys)
 	if err != nil {
 		return err
@@ -227,9 +236,11 @@ func install(sys system, out io.Writer, force, timezone bool) error {
 	return nil
 }
 
-// setUpAgent puts the tray app in place, lists it in Settings > Apps, and starts it now and at every
-// sign-in. Home is the agent's to record, as it starts: install changes nothing about the time zone.
-func setUpAgent(sys system, l layout, out io.Writer, timezone bool) error {
+// setUpAgent puts the tray app in place, lists it in Settings > Apps, and starts it. Starting at
+// every sign-in is the tray's switch, off on a first install, like Launch at login on the Mac; an
+// update keeps it as it was. Home is the agent's to record, as it starts: install changes nothing
+// about the time zone.
+func setUpAgent(sys system, l layout, out io.Writer, timezone zoneChoice) error {
 	program, err := os.ReadFile(l.exe)
 	if err != nil {
 		return err
@@ -243,31 +254,40 @@ func setUpAgent(sys system, l layout, out io.Writer, timezone bool) error {
 	}
 	// On a Windows too old for time zone sync, the tray app still shows where you are.
 	home, homeErr := currentHome(sys.zones, l.agent.home)
-	// A first install follows Alibi; an update keeps whatever you chose in the tray since. Only
-	// --no-timezone turns following off.
-	_, err = os.Stat(l.agent.settings)
-	first := errors.Is(err, os.ErrNotExist)
+	// Off on a first install; an update keeps whatever you chose in the tray since, unless told.
 	s := loadSettings(l.agent.settings)
-	if first || !timezone {
-		s.Sync = timezone
+	switch timezone {
+	case zoneOn:
+		s.Sync = true
+	case zoneOff:
+		s.Sync = false
 	}
-	timezone = s.Sync
+	following := s.Sync
 	if err := saveSettings(l.agent.settings, s); err != nil {
 		return err
 	}
 	if err := registerApp(sys, l); err != nil {
 		return fmt.Errorf("couldn't list Alibi Companion in Settings > Apps: %w", err)
 	}
-	if err := sys.registry.setValue(runKey, runName, `"`+l.agent.exe+`" agent`); err != nil {
-		return fmt.Errorf("couldn't have Windows start Alibi Companion at sign-in: %w", err)
+	// Already starting at sign-in: point it at this copy. Otherwise that's for the tray's switch.
+	_, atSignIn, _ := sys.registry.value(runKey, runName)
+	if atSignIn {
+		if err := sys.registry.setValue(runKey, runName, `"`+l.agent.exe+`" agent`); err != nil {
+			return fmt.Errorf("couldn't have Windows start Alibi Companion at sign-in: %w", err)
+		}
 	}
 
-	fmt.Fprintln(out, "\nAlibi Companion now runs in the tray, and starts every time you sign in.")
+	if atSignIn {
+		fmt.Fprintln(out, "\nAlibi Companion now runs in the tray, and starts every time you sign in.")
+	} else {
+		fmt.Fprintln(out, "\nAlibi Companion now runs in the tray. To have it start every time you sign in, turn on")
+		fmt.Fprintln(out, "\"Start when I sign in\" in its menu; or run this again to start it.")
+	}
 	if homeErr != nil {
 		fmt.Fprintf(out, "It can't keep Windows on your VPN's time zone here: %v\n", homeErr)
-	} else if timezone {
-		fmt.Fprintln(out, "Windows follows your VPN's time zone. To have it follow a place you choose in Alibi for all sites")
-		fmt.Fprintln(out, "instead, turn on \"Follow Alibi's location\" in the tray.")
+	} else if following {
+		fmt.Fprintln(out, "Windows follows your VPN's time zone while a VPN is up. To have it follow a place you choose in")
+		fmt.Fprintln(out, "Alibi for all sites instead, turn on \"Follow Alibi's location\" in the tray.")
 		fmt.Fprintf(out, "Quitting or uninstalling puts it back to %s, region %s.\n", home.Zone, home.Region)
 		// Windows' own "Set time zone automatically" would move it back to where you really are.
 		if sys.autoTZ != nil && sys.autoTZ.on() {
@@ -281,7 +301,8 @@ func setUpAgent(sys system, l layout, out io.Writer, timezone bool) error {
 			}
 		}
 	} else {
-		fmt.Fprintf(out, "Windows doesn't follow your VPN: it goes back to %s, region %s, and stays there. Turn it on from the tray.\n", home.Zone, home.Region)
+		fmt.Fprintf(out, "Windows' time zone stays yours (%s, region %s). To keep it on your VPN's time zone while a VPN\n", home.Zone, home.Region)
+		fmt.Fprintln(out, "is up, turn on \"Keep Windows on my VPN's time zone\" in the tray, or install with --timezone.")
 	}
 	if err := sys.agent.start(l.agent.exe); err != nil {
 		return fmt.Errorf("couldn't start Alibi Companion: %w", err)
