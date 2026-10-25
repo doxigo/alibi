@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestSettings(t *testing.T) {
@@ -31,6 +32,32 @@ func TestSettings(t *testing.T) {
 	os.WriteFile(path, []byte(`not json`), 0o644)
 	if broken := loadSettings(path); !reflect.DeepEqual(broken, defaultSettings()) {
 		t.Errorf("a broken file should read as the defaults: %+v", broken)
+	}
+}
+
+// Where a DNS resolver is gets asked once an hour, not at every check.
+func TestResolverPlacesAreRemembered(t *testing.T) {
+	asked := 0
+	about := func(context.Context, string) (geoAnswer, error) {
+		asked++
+		return geoAnswer{Country: "DE"}, nil
+	}
+	clock := time.Unix(1_761_217_200, 0)
+	cached := remembered(about, time.Hour, func() time.Time { return clock })
+	for range 3 {
+		if a, err := cached(context.Background(), "192.0.2.53"); err != nil || a.Country != "DE" {
+			t.Fatalf("%+v %v", a, err)
+		}
+		clock = clock.Add(5 * time.Minute)
+	}
+	cached(context.Background(), "198.51.100.53") // another resolver: asked about
+	if asked != 2 {
+		t.Errorf("asked GeoJS %d times, want once per resolver", asked)
+	}
+	clock = clock.Add(time.Hour)
+	cached(context.Background(), "192.0.2.53")
+	if asked != 3 {
+		t.Errorf("asked %d times, want again after an hour", asked)
 	}
 }
 

@@ -128,7 +128,7 @@ func defaultWatch(lookup func(context.Context) (cover, error), logf func(string,
 		lookup:      lookup,
 		fingerprint: networkFingerprint,
 		logf:        logf,
-		poll:        30 * time.Second,
+		poll:        60 * time.Second, // as often as Whereabouts checks
 		watch:       2 * time.Second,
 		settle:      []time.Duration{1 * time.Second, 3 * time.Second, 8 * time.Second, 20 * time.Second},
 		relay:       time.Second,
@@ -534,8 +534,8 @@ type agentState struct {
 	Updated time.Time `json:"updated"`
 }
 
-// An agent that hasn't written for this long has stopped (it writes after every look, every 30 s).
-const agentQuiet = 75 * time.Second
+// An agent that hasn't written for this long has stopped (it writes after every look, every 60 s).
+const agentQuiet = 150 * time.Second
 
 func agentStatePath(dir string) string { return filepath.Join(dir, "agent.json") }
 
