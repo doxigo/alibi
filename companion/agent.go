@@ -125,6 +125,8 @@ type agentConfig struct {
 	// Whether a VPN is up. Only then does the system follow where the connection comes out; without
 	// one that place is only approximate, so it stays home, as on the Mac. nil means never.
 	vpn func() bool
+	// Whether Windows' "Set time zone automatically" is on; nil means it isn't.
+	autoZone func() bool
 	// The country set as home in the tray, if one is; otherwise home's zone says.
 	homeCountry func() string
 	// Where this agent tells other users' agents what it does with the clock they share; nil for nowhere.
@@ -146,6 +148,7 @@ type agentReport struct {
 	HomeCountry string  // where the connection comes out when it's home
 	Elsewhere   bool    // another user's agent keeps the clock
 	VPN         bool    // a VPN is up, so the system follows the connection
+	AutoZone    bool    // Windows' automatic time zone is on, so the agent leaves the zone alone
 }
 
 // runAgent keeps the system on the connection's place until ctx ends.
@@ -292,7 +295,8 @@ func (g *agent) syncLocked() agentReport {
 }
 
 func (g *agent) reportLocked(system, target string) agentReport {
-	r := agentReport{Err: g.lastErr, Wish: g.wish, System: system, Target: target, Elsewhere: g.clockElsewhere, VPN: g.vpnUp()}
+	r := agentReport{Err: g.lastErr, Wish: g.wish, System: system, Target: target, Elsewhere: g.clockElsewhere, VPN: g.vpnUp(),
+		AutoZone: g.autoZoneOn()}
 	if g.unsupported != nil || g.clockElsewhere {
 		return r
 	}
@@ -489,6 +493,8 @@ func (g *agent) intendLocked(want setting) {
 
 func (g *agent) vpnUp() bool { return g.vpn != nil && g.vpn() }
 
+func (g *agent) autoZoneOn() bool { return g.autoZone != nil && g.autoZone() }
+
 // homeCountryLocked is the country the connection comes out in when it's home: the one set in the
 // tray's settings, if any, or home's own.
 func (g *agent) homeCountryLocked() string {
@@ -535,9 +541,18 @@ func (g *agent) settle(found cover, have bool, w *wish) (cover, string, string) 
 	known := false
 	if !g.dryRun {
 		now, known = g.noticeLocked()
-		if !syncing {
-			g.letGoLocked()
+	}
+	if g.autoZoneOn() {
+		// Windows' own automatic time zone sets the zone from where you really are. The agent leaves
+		// Windows alone meanwhile, as Whereabouts does, rather than putting the zone back every time;
+		// a zone it sets becomes home (noticeLocked). The tray says why it's waiting.
+		if g.dryRun {
+			g.logf("Windows' automatic time zone is on, so nothing would change")
 		}
+		return found, "", ""
+	}
+	if !g.dryRun && !syncing {
+		g.letGoLocked()
 	}
 	home := g.homeLocked().setting
 	var want setting

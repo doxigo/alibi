@@ -320,7 +320,7 @@ func agentCommand(sys system, options []string, stderr io.Writer) error {
 		}
 		w := readWish(l.agent.covers) // the place Alibi's running browsers ask for, if any
 		follows := loadSettings(l.agent.settings).FollowAlibi
-		dry := &agent{agentConfig: agentConfig{sys: sys.zones, home: home, dryRun: true, logf: logger.Printf, followAlibi: func() bool { return follows }, vpn: vpnUp}}
+		dry := &agent{agentConfig: agentConfig{sys: sys.zones, home: home, dryRun: true, logf: logger.Printf, followAlibi: func() bool { return follows }, vpn: vpnUp, autoZone: autoTimeZone}}
 		dry.settle(place, true, w)
 		return nil
 	}
@@ -413,7 +413,7 @@ func agentCommand(sys system, options []string, stderr io.Writer) error {
 	follower := &agent{agentConfig: agentConfig{
 		watch: watch, sys: sys.zones, unsupported: unsupported, clockElsewhere: elsewhere, notes: sys.notes,
 		home: h.setting, held: h.Held, homeIn: h.Country, homeFile: l.agent.home, state: l.agent.state, logf: logger.Printf,
-		sync: tray.syncOn, followAlibi: tray.followAlibiOn, homeCountry: tray.homeCountrySet, vpn: vpnUp,
+		sync: tray.syncOn, followAlibi: tray.followAlibiOn, homeCountry: tray.homeCountrySet, vpn: vpnUp, autoZone: autoTimeZone,
 		report: func(r agentReport) {
 			if tray.report(r) {
 				select {

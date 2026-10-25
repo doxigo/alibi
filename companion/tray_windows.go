@@ -62,6 +62,7 @@ type trayApp struct {
 	leaks       leakReport
 	elsewhere   bool   // another user's agent keeps the clock
 	vpn         bool   // a VPN is up
+	autoZone    bool   // Windows' automatic time zone is on
 	reads       string // the zone browsers read now
 	wish        *wish  // Alibi's All sites cover, once Alibi has said
 	system      string // the zone the agent holds Windows on, or ""
@@ -210,6 +211,7 @@ type snapshot struct {
 	leaks       leakReport
 	elsewhere   bool
 	vpn         bool
+	autoZone    bool
 	reads       string
 	wish        *wish
 	system      string
@@ -219,7 +221,7 @@ type snapshot struct {
 func (t *trayApp) snapshot() snapshot {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	return snapshot{t.homeZone, t.homeCountry, t.settings, t.place, t.looked, t.lookErr, t.leaks, t.elsewhere, t.vpn, t.reads, t.wish, t.system, t.target}
+	return snapshot{t.homeZone, t.homeCountry, t.settings, t.place, t.looked, t.lookErr, t.leaks, t.elsewhere, t.vpn, t.autoZone, t.reads, t.wish, t.system, t.target}
 }
 
 // home is the country where the connection coming out means it's home.
@@ -359,6 +361,8 @@ func (t *trayApp) statusLines(s snapshot) []string {
 		lines = append(lines, "Time zone sync isn't available on this Windows (see agent.log)")
 	case s.elsewhere:
 		lines = append(lines, "Another user's Alibi Companion keeps Windows' time zone now")
+	case s.autoZone && s.settings.Sync:
+		lines = append(lines, "Windows' automatic time zone is on, so the time zone is left as it is")
 	case s.reads == "":
 	case s.system != "" && s.system == s.reads:
 		switch {
@@ -561,7 +565,7 @@ func (t *trayApp) report(r agentReport) bool {
 		moved = !t.looked || r.Place.IP != t.place.IP || r.Place.Country != t.place.Country
 		t.place, t.looked = r.Place, true
 	}
-	t.lookErr, t.reads, t.wish, t.system, t.target, t.elsewhere, t.vpn = r.Err, reads, r.Wish, r.System, r.Target, r.Elsewhere, r.VPN
+	t.lookErr, t.reads, t.wish, t.system, t.target, t.elsewhere, t.vpn, t.autoZone = r.Err, reads, r.Wish, r.System, r.Target, r.Elsewhere, r.VPN, r.AutoZone
 	if r.HomeZone != "" {
 		t.homeZone = r.HomeZone
 	}
