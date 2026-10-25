@@ -3,7 +3,6 @@ package main
 import (
 	"os"
 	"path/filepath"
-	"runtime"
 	"testing"
 	"unsafe"
 
@@ -45,10 +44,7 @@ func readShortcut(path string) (target, args string, err error) {
 		}
 		defer link.release()
 		defer file.release()
-		p := utf16Ptr(path)
-		err = file.call(fileLoad, uintptr(unsafe.Pointer(p)), 0) // STGM_READ
-		runtime.KeepAlive(p)
-		if err != nil {
+		if err := file.call(fileLoad, uintptr(unsafe.Pointer(utf16Ptr(path))), 0); err != nil { // STGM_READ
 			return err
 		}
 		buf := make([]uint16, windows.MAX_LONG_PATH)

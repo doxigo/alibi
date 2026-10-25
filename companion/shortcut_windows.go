@@ -42,6 +42,10 @@ func startMenuShortcut() func(path, target, args, description string) error { re
 // comObject is a COM interface: a pointer to its table of methods.
 type comObject struct{ methods *[32]uintptr }
 
+// call calls a method. Its arguments may be pointers made into numbers, so they're kept on the heap,
+// and alive, until it returns, as for a syscall.
+//
+//go:uintptrescapes
 func (o *comObject) call(method int, args ...uintptr) error {
 	hr, _, _ := syscall.SyscallN(o.methods[method], append([]uintptr{uintptr(unsafe.Pointer(o))}, args...)...)
 	if int32(hr) < 0 {
@@ -97,15 +101,10 @@ func makeShortcut(path, target, args, description string) error {
 			method int
 			value  string
 		}{{linkSetPath, target}, {linkSetArguments, args}, {linkSetDescription, description}, {linkSetWorkingDirectory, filepath.Dir(target)}} {
-			p := utf16Ptr(set.value)
-			err := link.call(set.method, uintptr(unsafe.Pointer(p)))
-			runtime.KeepAlive(p)
-			if err != nil {
+			if err := link.call(set.method, uintptr(unsafe.Pointer(utf16Ptr(set.value)))); err != nil {
 				return err
 			}
 		}
-		p := utf16Ptr(path)
-		defer runtime.KeepAlive(p)
-		return file.call(fileSave, uintptr(unsafe.Pointer(p)), 1)
+		return file.call(fileSave, uintptr(unsafe.Pointer(utf16Ptr(path))), 1)
 	})
 }
