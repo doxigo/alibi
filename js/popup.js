@@ -421,6 +421,8 @@ $('#userScriptsLink').addEventListener('click', () =>
 
 // --- Start -------------------------------------------------------------------------------------
 
+// A companion that has started following Alibi's location since hears about the place now (background.js).
+chrome.runtime.sendMessage({ checkCompanion: true }).catch(() => {})
 stored = await chrome.storage.local.get(['configuration', 'timezone', 'locale', 'lat', 'lon', 'useDebuggerApi', 'sites', 'systemZone'])
 // On shop.example.com, an existing rule for example.com is the one to show and edit.
 const matched = coverFor(tabHost, stored).site
