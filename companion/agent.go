@@ -599,7 +599,7 @@ func (g *agent) settle(found cover, have bool, w *wish) (cover, string, string) 
 	reads, err := g.sys.hostZone()
 	if err != nil || reads == "" || reads != expected {
 		if syncing {
-			// Something set it back (Windows' "Set time zone automatically", say), or reads oddly.
+			// Something set it back, or it reads oddly.
 			g.logf("the system reads as %q, not %q, so Alibi keeps covering the zone", reads, expected)
 		}
 		return found, "", expected

@@ -287,12 +287,12 @@ func setUpAgent(sys system, l layout, out io.Writer, timezone zoneChoice) error 
 		fmt.Fprintf(out, "It can't keep Windows on your VPN's time zone here: %v\n", homeErr)
 	} else if following {
 		fmt.Fprintln(out, "Windows follows your VPN's time zone while a VPN is up. To have it follow a place you choose in")
-		fmt.Fprintln(out, "Alibi for all sites instead, turn on \"Follow Alibi's location\" in the tray.")
+		fmt.Fprintln(out, "Alibi for all sites instead, turn on \"or on Alibi's location for all sites\" in the tray.")
 		fmt.Fprintf(out, "Quitting or uninstalling puts it back to %s, region %s.\n", home.Zone, home.Region)
 		// Windows' own "Set time zone automatically" would move it back to where you really are.
 		if sys.autoTZ != nil && sys.autoTZ.on() {
-			const question = "\nWindows' \"Set time zone automatically\" is on, and it would move the zone back.\n" +
-				"Open Date & time settings to switch it off? [Y/n] "
+			const question = "\nWindows' \"Set time zone automatically\" is on, and while it is, the companion leaves the\n" +
+				"time zone alone. Open Date & time settings to switch it off? [Y/n] "
 			if sys.ask != nil && sys.ask(question) {
 				sys.autoTZ.openSettings()
 				fmt.Fprintln(out, "Opened Settings > Time & language > Date & time: switch off \"Set time zone automatically\" there.")
@@ -310,7 +310,7 @@ func setUpAgent(sys system, l layout, out io.Writer, timezone zoneChoice) error 
 	return nil
 }
 
-const autoTimeZoneWarning = "\nWindows' \"Set time zone automatically\" is on, and it can move the zone back.\n" +
+const autoTimeZoneWarning = "\nWindows' \"Set time zone automatically\" is on, so the companion leaves the time zone alone.\n" +
 	"Switch it off in Settings > Time & language > Date & time (the tray opens it for you)."
 
 // The app's entry in Settings > Apps > Installed apps, for this user.

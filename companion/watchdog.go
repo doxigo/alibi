@@ -22,8 +22,8 @@ type settings struct {
 	Alerts      bool `json:"alerts"` // notify when the connection isn't where it should be
 	Sound       bool `json:"sound"`
 	EdgeLine    bool `json:"edgeLine"` // a red line along the top of the screen while something's wrong
-	// The country that counts as "home", where the connection coming out means the VPN is off.
-	// Empty: the country of the time zone Windows had before the companion.
+	// The country that counts as home: DNS going through it while the connection comes out
+	// elsewhere is a leak. Empty: the country of the time zone Windows had before the companion.
 	Home string `json:"homeCountry,omitempty"`
 	// If set, anywhere else is wrong. Blocked countries are always wrong.
 	Allowed []string `json:"allowedCountries,omitempty"`
