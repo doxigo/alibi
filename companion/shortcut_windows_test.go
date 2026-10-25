@@ -24,9 +24,17 @@ func TestShortcutStartsTheAgent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !samePath(got, target) || args != "agent" {
+	// The same file, whichever way the path is spelled: a temp folder can be under an 8.3 name
+	// (RUNNER~1), and the shell gives back the long one.
+	if !sameFile(got, target) || args != "agent" {
 		t.Errorf("the shortcut starts %q %q, want %q agent", got, args, target)
 	}
+}
+
+func sameFile(a, b string) bool {
+	fa, errA := os.Stat(a)
+	fb, errB := os.Stat(b)
+	return errA == nil && errB == nil && os.SameFile(fa, fb)
 }
 
 func readShortcut(path string) (target, args string, err error) {
