@@ -257,7 +257,7 @@ func setUpAgent(sys system, l layout, out io.Writer, timezone zoneChoice) error 
 		return fmt.Errorf("couldn't copy the tray app: %w", err)
 	}
 	// On a Windows too old for time zone sync, the tray app still shows where you are.
-	home, homeErr := currentHome(sys.zones, l.agent.home)
+	home, homeErr := currentHome(sys.zones, l.agent.home, notesOf(sys.notes))
 	// Off on a first install; an update keeps whatever you chose in the tray since, unless told.
 	s := loadSettings(l.agent.settings)
 	switch timezone {
