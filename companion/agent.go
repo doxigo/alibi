@@ -13,15 +13,16 @@ import (
 	"time"
 )
 
-// The agent keeps the system on the time zone of wherever the connection comes out. Every program
-// then reads the VPN's zone natively: a page's very first script, its workers of every kind, and
-// apps outside the browser. With Follow Alibi's location on in the tray, a place Alibi has for all
-// sites moves it there instead. Off and Match my IP address in Alibi ask nothing of the system.
+// While a VPN is up, the agent keeps the system on the time zone of wherever the connection comes
+// out. Every program then reads the VPN's zone natively: a page's very first script, its workers of
+// every kind, and apps outside the browser. With Follow Alibi's location on in the tray, a place
+// Alibi has for all sites moves it there instead, VPN or not. Off and Match my IP address in Alibi ask
+// nothing of the system.
 //
 // On Windows it also sets the region ("Country or region") when, and only when, that changes the
 // name browsers give the zone: the W. Europe zone reads as Europe/Oslo only with the region set to
-// Norway, and as Europe/Berlin otherwise. When the connection comes out at home again, Windows goes
-// back to exactly how it was before the agent first ran.
+// Norway, and as Europe/Berlin otherwise. With no VPN up, Windows goes back to exactly how it was
+// before the agent first ran.
 
 // zoneSystem is the system's time zone and region, as the agent reads and sets them.
 type zoneSystem interface {
@@ -151,7 +152,7 @@ type agentReport struct {
 	AutoZone    bool    // Windows' automatic time zone is on, so the agent leaves the zone alone
 }
 
-// runAgent keeps the system on the connection's place until ctx ends.
+// runAgent keeps the system where it should be (settle) until ctx ends.
 func runAgent(ctx context.Context, a agentConfig) error {
 	return (&agent{agentConfig: a}).run(ctx)
 }
@@ -180,7 +181,7 @@ type homeState struct {
 	// dies in between still knows the change, or the part of it that took, was its own.
 	Pending *setting `json:"pending,omitempty"`
 	// Where the connection comes out at home: home's zone's country when it was first recorded. A zone
-	// you set yourself later doesn't change it. The tray's alerts go by it.
+	// you set yourself later doesn't change it. The tray's DNS check goes by it.
 	Country string `json:"country,omitempty"`
 	Version int    `json:"version"` // 0: written before held was, when home was recorded once and kept
 }
@@ -525,12 +526,13 @@ func (a agentConfig) placeOf(w *wish) string {
 }
 
 // settle moves the system's clock where it should be: to the place Alibi has for all sites, with
-// Follow Alibi's location on, or otherwise to where the connection comes out; exactly home when that's
-// the home country. It returns the connection's place for the host, its zone as browsers now read it
-// when the system's on it; the zone it holds the system on, or ""; and the zone the system should read.
-// Whenever the system isn't there, the place keeps GeoJS's zone, so Alibi fakes it rather than showing
-// the real one. With sync off it puts the system back home once, then leaves it alone, but still says
-// when it matches. The caller holds g.mu.
+// Follow Alibi's location on; otherwise, while a VPN is up, to where the connection comes out; and
+// with none, exactly home. While Windows' automatic time zone is on, it lets go and moves nothing.
+// It returns the connection's place for the host, with its zone as browsers now read it when the
+// system reads as the connection's zone; the zone it holds the system on, or ""; and the zone the
+// system should read. Whenever the system doesn't read as the connection's zone, the place keeps
+// GeoJS's, so Alibi fakes it rather than showing the real one. With sync off it puts the system back
+// home once, then leaves it alone, but still says when it matches. The caller holds g.mu.
 func (g *agent) settle(found cover, have bool, w *wish) (cover, string, string) {
 	if g.unsupported != nil || g.clockElsewhere || g.finished {
 		return found, "", ""
@@ -545,9 +547,12 @@ func (g *agent) settle(found cover, have bool, w *wish) (cover, string, string) 
 	if g.autoZoneOn() {
 		// Windows' own automatic time zone sets the zone from where you really are. The agent leaves
 		// Windows alone meanwhile, as Whereabouts does, rather than putting the zone back every time;
-		// a zone it sets becomes home (noticeLocked). The tray says why it's waiting.
+		// a zone it sets becomes home (noticeLocked). What the agent itself set goes back first, the
+		// region too, which the automatic time zone doesn't touch. The tray says why it's waiting.
 		if g.dryRun {
 			g.logf("Windows' automatic time zone is on, so nothing would change")
+		} else {
+			g.letGoLocked()
 		}
 		return found, "", ""
 	}
@@ -558,6 +563,9 @@ func (g *agent) settle(found cover, have bool, w *wish) (cover, string, string) 
 	var want setting
 	var err error
 	var why string
+	// The zone the system reads as when it's set for the connection's place. When it reads so now,
+	// Alibi hears the zone the system's way (America/New_York for a Detroit exit), and fakes nothing.
+	exitZone := ""
 	switch {
 	case place == "" && !have:
 		return found, "", "" // nothing to aim at before the first answer
@@ -565,9 +573,13 @@ func (g *agent) settle(found cover, have bool, w *wish) (cover, string, string) 
 		// No VPN: the connection's place is only approximate (your own ISP can show up in another zone
 		// of a big country), so the system stays home, exactly.
 		want, why = home, "no VPN is up"
+		if on, err := wanted(g.sys, found, home); err == nil {
+			exitZone, _ = g.sys.ianaZone(baseZone(on.Zone), on.Region)
+		}
 	case place == "":
 		want, err = wanted(g.sys, found, home)
 		why = fmt.Sprintf("connection comes out in %s (%s)", found.Timezone, found.Country)
+		exitZone, _ = g.sys.ianaZone(baseZone(want.Zone), want.Region)
 	default:
 		want, err = wanted(g.sys, cover{Timezone: place, Country: zoneCountries[place]}, home)
 		why = "Alibi's location is " + place
@@ -607,7 +619,7 @@ func (g *agent) settle(found cover, have bool, w *wish) (cover, string, string) 
 	if changed {
 		g.logf("%s: set Windows to %s, region %s, which browsers read as %s", why, want.Zone, want.Region, reads)
 	}
-	if place == "" {
+	if place == "" && reads == exitZone {
 		found.Timezone = reads
 	}
 	if !syncing {
