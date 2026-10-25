@@ -30,10 +30,11 @@ const usage = `Alibi Companion %s
 Tells Alibi the moment your VPN exit changes, so "Match my IP address" follows it within seconds.
 
 Usage:
-  alibi-companion install [--force] [--no-timezone]
+  alibi-companion install [--force] [--timezone | --no-timezone]
                              copy it into your user folder and register it with your browsers.
-                             On Windows it also runs in the tray from every sign-in, and keeps
-                             Windows on your VPN's time zone, unless you say --no-timezone
+                             On Windows it also starts the tray app. With --timezone, that keeps
+                             Windows on your VPN's time zone while a VPN is up (the tray can
+                             turn that on later too); an update keeps what you chose there
   alibi-companion uninstall [--quiet]
                              remove it again, and put the time zone back as it was
   alibi-companion status     show where it's registered and where your connection appears to be
@@ -68,13 +69,15 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		}
 		return 0
 	}
-	force, timezone, quiet, after := false, true, false, 0
+	force, timezone, quiet, after := false, zoneUnsaid, false, 0
 	for i := 0; i < len(options); i++ {
 		switch option := options[i]; {
 		case command == "install" && option == "--force":
 			force = true
+		case command == "install" && option == "--timezone":
+			timezone = zoneOn
 		case command == "install" && option == "--no-timezone":
-			timezone = false
+			timezone = zoneOff
 		case command == "uninstall" && option == "--quiet":
 			quiet = true
 		case command == "uninstall" && option == "--after" && i+1 < len(options):
@@ -116,7 +119,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			return 0
 		}
 		// Double-clicked on Windows: install.
-		err = install(sys, stdout, false, true)
+		err = install(sys, stdout, false, zoneUnsaid)
 	default:
 		fmt.Fprintf(stderr, "Unknown command %q\n\n"+usage, command, version)
 		return 2

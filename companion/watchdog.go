@@ -14,7 +14,7 @@ import (
 
 // settings is what the tray lets you choose. Saved as settings.json in the companion's folder.
 type settings struct {
-	Sync bool `json:"timezoneSync"` // keep Windows on the VPN's time zone
+	Sync bool `json:"timezoneSync"` // keep Windows on the VPN's time zone while one is up; off by default
 	// With Sync on, a place Alibi has for all sites moves Windows there instead. Off by default: it
 	// moves everything on the computer, not just the browser.
 	FollowAlibi bool `json:"followAlibi"`
@@ -34,7 +34,7 @@ type settings struct {
 func (s settings) followsAlibi() bool { return s.Sync && s.FollowAlibi }
 
 func defaultSettings() settings {
-	return settings{Sync: true, Alerts: true, Sound: true, EdgeLine: true}
+	return settings{Alerts: true, Sound: true, EdgeLine: true}
 }
 
 // loadSettings reads settings.json; anything it doesn't say keeps its default.

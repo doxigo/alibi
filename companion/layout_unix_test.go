@@ -58,7 +58,7 @@ func TestLinuxLayoutFollowsXDG(t *testing.T) {
 func TestLinuxInstallRegistersWithTheBrowsersThatAreThere(t *testing.T) {
 	sys, l, config := linuxSystem(t, fakeDownload(t, "program 1"), "google-chrome", "BraveSoftware/Brave-Browser")
 	var out bytes.Buffer
-	if err := install(sys, &out, false, true); err != nil {
+	if err := install(sys, &out, false, zoneUnsaid); err != nil {
 		t.Fatal(err)
 	}
 	checkProgram(t, l.exe, "program 1")
@@ -77,7 +77,7 @@ func TestLinuxInstallRegistersWithTheBrowsersThatAreThere(t *testing.T) {
 
 func TestLinuxInstallNeedsABrowser(t *testing.T) {
 	sys, l, _ := linuxSystem(t, fakeDownload(t, "program 1"))
-	if err := install(sys, &bytes.Buffer{}, false, true); err == nil || !strings.Contains(err.Error(), "no supported browser") {
+	if err := install(sys, &bytes.Buffer{}, false, zoneUnsaid); err == nil || !strings.Contains(err.Error(), "no supported browser") {
 		t.Errorf("err = %v", err)
 	}
 	if _, err := os.Stat(l.dir); !os.IsNotExist(err) {
@@ -88,9 +88,9 @@ func TestLinuxInstallNeedsABrowser(t *testing.T) {
 func TestLinuxReinstallReplacesTheProgram(t *testing.T) {
 	self := fakeDownload(t, "program 1")
 	sys, l, _ := linuxSystem(t, self, "chromium")
-	install(sys, &bytes.Buffer{}, false, true)
+	install(sys, &bytes.Buffer{}, false, zoneUnsaid)
 	os.WriteFile(self, []byte("program 2"), 0o755)
-	if err := install(sys, &bytes.Buffer{}, false, true); err != nil {
+	if err := install(sys, &bytes.Buffer{}, false, zoneUnsaid); err != nil {
 		t.Fatal(err)
 	}
 	checkProgram(t, l.exe, "program 2")
@@ -100,10 +100,10 @@ func TestLinuxInstallLeavesAnotherProgramAlone(t *testing.T) {
 	sys, l, config := linuxSystem(t, fakeDownload(t, "program 1"), "google-chrome", "vivaldi")
 	other := hostFile(config, "vivaldi")
 	writeFileAtomic(other, hostManifest("/opt/whereabouts/host"), 0o644)
-	if err := install(sys, &bytes.Buffer{}, false, true); err == nil || !strings.Contains(err.Error(), "--force") {
+	if err := install(sys, &bytes.Buffer{}, false, zoneUnsaid); err == nil || !strings.Contains(err.Error(), "--force") {
 		t.Fatalf("install took over another program's registration (err %v)", err)
 	}
-	if err := install(sys, &bytes.Buffer{}, true, true); err != nil {
+	if err := install(sys, &bytes.Buffer{}, true, zoneUnsaid); err != nil {
 		t.Fatal(err)
 	}
 	checkManifest(t, other, l.exe)
@@ -111,7 +111,7 @@ func TestLinuxInstallLeavesAnotherProgramAlone(t *testing.T) {
 
 func TestLinuxUninstall(t *testing.T) {
 	sys, l, config := linuxSystem(t, fakeDownload(t, "program 1"), "google-chrome", "microsoft-edge")
-	install(sys, &bytes.Buffer{}, false, true)
+	install(sys, &bytes.Buffer{}, false, zoneUnsaid)
 	other := hostFile(config, "microsoft-edge")
 	writeFileAtomic(other, hostManifest("/opt/other/host"), 0o644) // someone else's since
 	var out bytes.Buffer
@@ -132,7 +132,7 @@ func TestLinuxUninstall(t *testing.T) {
 
 func TestLinuxStatus(t *testing.T) {
 	sys, _, _ := linuxSystem(t, fakeDownload(t, "program 1"), "chromium")
-	install(sys, &bytes.Buffer{}, false, true)
+	install(sys, &bytes.Buffer{}, false, zoneUnsaid)
 	var out bytes.Buffer
 	status(sys, &out, fakeLookup)
 	for _, want := range []string{"Installed: ", "Chromium             registered", "Google Chrome        not installed", "Asia/Tokyo (ja-JP"} {
