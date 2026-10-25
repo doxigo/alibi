@@ -143,8 +143,8 @@ func (t *trayApp) wndProc(hwnd, message, wParam, lParam uintptr) uintptr {
 		t.refresh()
 		return 0
 	case wmTimeChange:
-		// Something changed the time zone. If it wasn't the agent (Windows' own automatic time zone,
-		// say), the agent puts it back now rather than at its next look.
+		// Something changed the time zone. If it wasn't the agent, the agent looks now rather than at
+		// its next look: a zone you set becomes home.
 		if t.onTimeChange != nil && t.later != nil {
 			t.later(t.onTimeChange)
 		}
@@ -480,7 +480,11 @@ func (t *trayApp) showMenu(hwnd uintptr) {
 	add(0, cmdCheckPage, "Open the check page")
 	add(0, cmdFolder, "Open the companion's folder")
 	separator()
-	add(0, cmdQuit, "Quit until I sign in again")
+	if startsAtSignIn {
+		add(0, cmdQuit, "Quit until I sign in again")
+	} else {
+		add(0, cmdQuit, "Quit")
+	}
 
 	var pt point
 	procGetCursorPos.Call(uintptr(unsafe.Pointer(&pt)))
