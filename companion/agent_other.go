@@ -20,6 +20,8 @@ func systemZones() zoneSystem                     { return nil }
 func clockNotesHere() clockNotes                  { return nil }
 func autoTimeZone() bool                          { return false }
 
+func startMenuShortcut() func(path, target, args, description string) error { return nil }
+
 func agentCommand(system, []string, io.Writer) error { return errNoAgent }
 
 // vpnUp is Windows-only for now, like the agent that asks it.

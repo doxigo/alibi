@@ -25,6 +25,9 @@ func currentLayout(sys system) (layout, error) {
 	dir := filepath.Join(base, "Programs", "Alibi Companion")
 	l := layout{dir: dir, exe: filepath.Join(dir, "alibi-companion.exe"), manifest: filepath.Join(dir, hostName+".json"), agent: newAgentFiles(dir)}
 	l.owner = l.manifest
+	if appData := sys.getenv("APPDATA"); appData != "" {
+		l.agent.shortcut = filepath.Join(appData, "Microsoft", "Windows", "Start Menu", "Programs", "Alibi Companion.lnk")
+	}
 	for _, b := range windowsBrowsers {
 		l.targets = append(l.targets, registryTarget{
 			name:     b.name,

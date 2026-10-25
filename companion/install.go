@@ -28,6 +28,8 @@ type system struct {
 	ask func(question string) bool
 	// Where the agent tells other users' agents what it does with the clock; nil for nowhere.
 	notes clockNotes
+	// Saves a shortcut that starts a program (Windows only).
+	shortcut func(path, target, args, description string) error
 }
 
 func notesOf(n clockNotes) []clockNote {
@@ -60,6 +62,7 @@ func defaultSystem() system {
 		autoTZ:    autoTimeZoneSwitch(),
 		ask:       consoleAsk(),
 		notes:     clockNotesHere(),
+		shortcut:  startMenuShortcut(),
 	}
 }
 
@@ -104,6 +107,7 @@ type agentFiles struct {
 	log      string // agent.log
 	settings string // settings.json: what the tray lets you choose
 	covers   string // the covers folder: each running host's word on Alibi's All sites cover (heardCover)
+	shortcut string // the Start menu's Alibi Companion, which starts the tray app; "" for none
 }
 
 func newAgentFiles(dir string) *agentFiles {
@@ -269,6 +273,12 @@ func setUpAgent(sys system, l layout, out io.Writer, timezone zoneChoice) error 
 	if err := registerApp(sys, l); err != nil {
 		return fmt.Errorf("couldn't list Alibi Companion in Settings > Apps: %w", err)
 	}
+	// In the Start menu, so you can start the tray app again whenever it isn't running.
+	if sys.shortcut != nil && l.agent.shortcut != "" {
+		if err := sys.shortcut(l.agent.shortcut, l.agent.exe, "agent", appComments); err != nil {
+			fmt.Fprintf(out, "Couldn't add Alibi Companion to the Start menu: %v\n", err)
+		}
+	}
 	// Already starting at sign-in: point it at this copy. Otherwise that's for the tray's switch.
 	_, atSignIn, _ := sys.registry.value(runKey, runName)
 	if atSignIn {
@@ -281,7 +291,7 @@ func setUpAgent(sys system, l layout, out io.Writer, timezone zoneChoice) error 
 		fmt.Fprintln(out, "\nAlibi Companion now runs in the tray, and starts every time you sign in.")
 	} else {
 		fmt.Fprintln(out, "\nAlibi Companion now runs in the tray. To have it start every time you sign in, turn on")
-		fmt.Fprintln(out, "\"Start when I sign in\" in its menu; or run this again to start it.")
+		fmt.Fprintln(out, "\"Start when I sign in\" in its menu. Until then, start it from the Start menu.")
 	}
 	if homeErr != nil {
 		fmt.Fprintf(out, "It can't keep Windows on your VPN's time zone here: %v\n", homeErr)
@@ -316,6 +326,9 @@ const autoTimeZoneWarning = "\nWindows' \"Set time zone automatically\" is on, s
 // The app's entry in Settings > Apps > Installed apps, for this user.
 const uninstallKey = `Software\Microsoft\Windows\CurrentVersion\Uninstall\AlibiCompanion`
 
+// What the app does, in Settings > Apps and on its Start menu shortcut.
+const appComments = "Shows where your connection comes out, tells Alibi, and can keep Windows on your VPN's time zone"
+
 func registerApp(sys system, l layout) error {
 	size := uint32(0)
 	for _, f := range []string{l.exe, l.agent.exe} {
@@ -327,7 +340,7 @@ func registerApp(sys system, l layout) error {
 		{"DisplayName", "Alibi Companion"},
 		{"DisplayVersion", version},
 		{"Publisher", "Alibi"},
-		{"Comments", "Keeps Windows on your VPN's time zone and tells Alibi where you are"},
+		{"Comments", appComments},
 		{"DisplayIcon", `"` + l.agent.exe + `",0`},
 		{"InstallLocation", l.dir},
 		{"InstallDate", time.Now().Format("20060102")},
@@ -384,6 +397,9 @@ func removeAgent(sys system, l layout, out io.Writer, quiet bool) error {
 		os.Remove(f)
 	}
 	os.RemoveAll(l.agent.covers)
+	if l.agent.shortcut != "" {
+		os.Remove(l.agent.shortcut)
+	}
 	if err := os.Remove(l.agent.exe); err != nil && !errors.Is(err, os.ErrNotExist) {
 		os.Rename(l.agent.exe, oldName(l.agent.exe))
 	}
@@ -479,11 +495,14 @@ func status(sys system, out io.Writer, lookup func(context.Context) (cover, erro
 func agentStatus(sys system, l layout, out io.Writer) {
 	_, atSignIn, _ := sys.registry.value(runKey, runName)
 	running := sys.agent.running()
+	_, missing := os.Stat(l.agent.exe)
 	switch {
 	case running:
 		fmt.Fprintln(out, "\nTray app: running")
 	case atSignIn:
 		fmt.Fprintln(out, "\nTray app: not running now (it starts at sign-in)")
+	case missing == nil:
+		fmt.Fprintln(out, "\nTray app: not running now (start it from the Start menu)")
 	default:
 		fmt.Fprintln(out, "\nTray app: not set up")
 	}
