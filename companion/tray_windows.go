@@ -61,6 +61,7 @@ type trayApp struct {
 	lookErr     error // the last look's failure, if it failed
 	leaks       leakReport
 	elsewhere   bool   // another user's agent keeps the clock
+	vpn         bool   // a VPN is up
 	reads       string // the zone browsers read now
 	wish        *wish  // Alibi's All sites cover, once Alibi has said
 	system      string // the zone the agent holds Windows on, or ""
@@ -208,6 +209,7 @@ type snapshot struct {
 	lookErr     error
 	leaks       leakReport
 	elsewhere   bool
+	vpn         bool
 	reads       string
 	wish        *wish
 	system      string
@@ -217,7 +219,7 @@ type snapshot struct {
 func (t *trayApp) snapshot() snapshot {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	return snapshot{t.homeZone, t.homeCountry, t.settings, t.place, t.looked, t.lookErr, t.leaks, t.elsewhere, t.reads, t.wish, t.system, t.target}
+	return snapshot{t.homeZone, t.homeCountry, t.settings, t.place, t.looked, t.lookErr, t.leaks, t.elsewhere, t.vpn, t.reads, t.wish, t.system, t.target}
 }
 
 // home is the country where the connection coming out means it's home.
@@ -359,10 +361,13 @@ func (t *trayApp) statusLines(s snapshot) []string {
 		lines = append(lines, "Another user's Alibi Companion keeps Windows' time zone now")
 	case s.reads == "":
 	case s.system != "" && s.system == s.reads:
-		if held {
+		switch {
+		case held:
 			lines = append(lines, "✓  Windows on Alibi's location: "+s.reads)
-		} else {
+		case s.vpn:
 			lines = append(lines, "✓  Windows on your VPN's time zone: "+s.reads)
+		default:
+			lines = append(lines, "✓  No VPN is up, so Windows stays on your own time zone: "+s.reads)
 		}
 	case !s.settings.Sync:
 		lines = append(lines, "Windows reads "+s.reads+" (it doesn't follow your VPN now)")
@@ -556,7 +561,7 @@ func (t *trayApp) report(r agentReport) bool {
 		moved = !t.looked || r.Place.IP != t.place.IP || r.Place.Country != t.place.Country
 		t.place, t.looked = r.Place, true
 	}
-	t.lookErr, t.reads, t.wish, t.system, t.target, t.elsewhere = r.Err, reads, r.Wish, r.System, r.Target, r.Elsewhere
+	t.lookErr, t.reads, t.wish, t.system, t.target, t.elsewhere, t.vpn = r.Err, reads, r.Wish, r.System, r.Target, r.Elsewhere, r.VPN
 	if r.HomeZone != "" {
 		t.homeZone = r.HomeZone
 	}

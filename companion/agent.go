@@ -122,6 +122,9 @@ type agentConfig struct {
 	// Whether a place Alibi has for all sites moves the system there (the tray's Follow Alibi's
 	// location); nil means never.
 	followAlibi func() bool
+	// Whether a VPN is up. Only then does the system follow where the connection comes out; without
+	// one that place is only approximate, so it stays home, as on the Mac. nil means never.
+	vpn func() bool
 	// The country set as home in the tray, if one is; otherwise home's zone says.
 	homeCountry func() string
 	// Where this agent tells other users' agents what it does with the clock they share; nil for nowhere.
@@ -142,6 +145,7 @@ type agentReport struct {
 	HomeZone    string  // home's zone as browsers read it
 	HomeCountry string  // where the connection comes out when it's home
 	Elsewhere   bool    // another user's agent keeps the clock
+	VPN         bool    // a VPN is up, so the system follows the connection
 }
 
 // runAgent keeps the system on the connection's place until ctx ends.
@@ -175,10 +179,6 @@ type homeState struct {
 	// Where the connection comes out at home: home's zone's country when it was first recorded. A zone
 	// you set yourself later doesn't change it. The tray's alerts go by it.
 	Country string `json:"country,omitempty"`
-	// The zone GeoJS gave the connection when you set home's zone yourself, there in your home country:
-	// on that connection Windows keeps home's own setting, so what you set stays, rather than going to
-	// GeoJS's idea of the zone. An exit elsewhere in the country, in another zone, still moves it.
-	SetOn   string `json:"setOn,omitempty"`
 	Version int    `json:"version"` // 0: written before held was, when home was recorded once and kept
 }
 
@@ -292,7 +292,7 @@ func (g *agent) syncLocked() agentReport {
 }
 
 func (g *agent) reportLocked(system, target string) agentReport {
-	r := agentReport{Err: g.lastErr, Wish: g.wish, System: system, Target: target, Elsewhere: g.clockElsewhere}
+	r := agentReport{Err: g.lastErr, Wish: g.wish, System: system, Target: target, Elsewhere: g.clockElsewhere, VPN: g.vpnUp()}
 	if g.unsupported != nil || g.clockElsewhere {
 		return r
 	}
@@ -416,11 +416,7 @@ func (g *agent) noticeLocked() (setting, bool) {
 		return now, true
 	}
 	g.logf("Windows was set to %s, region %s, by something else, so home is now %s, region %s", now.Zone, now.Region, home.Zone, home.Region)
-	setOn := h.SetOn
-	if g.have && g.found.Country != "" && g.found.Country == g.homeCountryLocked() {
-		setOn = g.found.Timezone
-	}
-	*h = homeState{setting: home, Held: held, Country: h.Country, SetOn: setOn, Version: 1}
+	*h = homeState{setting: home, Held: held, Country: h.Country, Version: 1}
 	g.saveHomeLocked()
 	return now, true
 }
@@ -449,19 +445,6 @@ func adopt(home setting, held, pending *setting, now setting) (setting, *setting
 }
 
 func sameSetting(a, b *setting) bool { return a == nil && b == nil || a != nil && b != nil && *a == *b }
-
-// sameWindowsZone reports whether two zone names are one Windows zone.
-func (g *agent) sameWindowsZone(a, b string) bool {
-	if a == "" || b == "" {
-		return false
-	}
-	wa, err := g.sys.windowsZone(a)
-	if err != nil {
-		return false
-	}
-	wb, err := g.sys.windowsZone(b)
-	return err == nil && wa == wb
-}
 
 // letGoLocked puts the system back home, once, if it's still where the agent left it, and from then on
 // holds it nowhere: Windows is yours again. Moved since by someone else, it stays put, and that's home.
@@ -503,6 +486,8 @@ func (g *agent) intendLocked(want setting) {
 	g.homeLocked().Pending = &want
 	g.saveHomeLocked()
 }
+
+func (g *agent) vpnUp() bool { return g.vpn != nil && g.vpn() }
 
 // homeCountryLocked is the country the connection comes out in when it's home: the one set in the
 // tray's settings, if any, or home's own.
@@ -554,12 +539,6 @@ func (g *agent) settle(found cover, have bool, w *wish) (cover, string, string) 
 			g.letGoLocked()
 		}
 	}
-	if h := g.homeLocked(); have && !g.dryRun && h.SetOn == "" && found.Country != "" && found.Country == g.homeCountryLocked() {
-		// The first connection seen in your own country is home's. GeoJS can put your own ISP in
-		// another zone of a big country, and that alone mustn't move the clock.
-		h.SetOn = found.Timezone
-		g.saveHomeLocked()
-	}
 	home := g.homeLocked().setting
 	var want setting
 	var err error
@@ -567,9 +546,10 @@ func (g *agent) settle(found cover, have bool, w *wish) (cover, string, string) 
 	switch {
 	case place == "" && !have:
 		return found, "", "" // nothing to aim at before the first answer
-	case place == "" && g.sameWindowsZone(found.Timezone, g.homeLocked().SetOn):
-		// The connection you set your own zone on: home's own setting, whatever GeoJS calls the zone.
-		want, why = home, fmt.Sprintf("connection comes out where you set your own time zone (%s)", found.Timezone)
+	case place == "" && !g.vpnUp():
+		// No VPN: the connection's place is only approximate (your own ISP can show up in another zone
+		// of a big country), so the system stays home, exactly.
+		want, why = home, "no VPN is up"
 	case place == "":
 		want, err = wanted(g.sys, found, home)
 		why = fmt.Sprintf("connection comes out in %s (%s)", found.Timezone, found.Country)
@@ -711,7 +691,7 @@ func loadHome(sys zoneSystem, path string, others []clockNote) (homeState, error
 		}
 		h.Held = &setting{Zone: now.Zone, Region: left.Region}
 		home, held, _ := adopt(h.setting, h.Held, h.Pending, now)
-		h = homeState{setting: home, Held: held, Country: h.Country, SetOn: h.SetOn}
+		h = homeState{setting: home, Held: held, Country: h.Country}
 	case foreign && errors.Is(err, os.ErrNotExist) && note.Home != "":
 		h = homeState{setting: setting{Zone: note.Home, Region: now.Region}, Held: &now}
 	case err == nil && h.Version == 0:
@@ -724,7 +704,7 @@ func loadHome(sys zoneSystem, path string, others []clockNote) (homeState, error
 		// What the agent left, or was about to set, is still its own; anything else changed while it
 		// wasn't running, and is home now.
 		home, held, _ := adopt(h.setting, h.Held, h.Pending, now)
-		h = homeState{setting: home, Held: held, Country: h.Country, SetOn: h.SetOn}
+		h = homeState{setting: home, Held: held, Country: h.Country}
 	case !errors.Is(err, os.ErrNotExist) && !errors.Is(err, errNoHome):
 		return homeState{}, err
 	default:
