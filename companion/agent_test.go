@@ -147,7 +147,7 @@ func (g *agent) settleExit(place cover) cover {
 
 func TestSettleReportsTheZoneAsBrowsersReadIt(t *testing.T) {
 	f := atHome()
-	a := &agent{agentConfig: agentConfig{sys: f, home: home, logf: t.Logf}}
+	a := &agent{agentConfig: agentConfig{vpn: vpnOn, sys: f, home: home, logf: t.Logf}}
 	if got := a.settleExit(exit("Europe/Oslo", "NO")); got.Timezone != "Europe/Oslo" || f.zoneNow != "W. Europe Standard Time" || f.regionNow != "NO" {
 		t.Errorf("Norway: reported %s, Windows %s/%s", got.Timezone, f.zoneNow, f.regionNow)
 	}
@@ -165,15 +165,15 @@ func TestSettleReportsTheZoneAsBrowsersReadIt(t *testing.T) {
 func TestSettleKeepsGeoJSZoneWhenWindowsDoesNotFollow(t *testing.T) {
 	reverted := atHome()
 	reverted.readsAs = "Asia/Tehran" // "Set time zone automatically" put it back
-	if got := (&agent{agentConfig: agentConfig{sys: reverted, home: home, logf: t.Logf}}).settleExit(exit("America/Detroit", "US")); got.Timezone != "America/Detroit" {
+	if got := (&agent{agentConfig: agentConfig{vpn: vpnOn, sys: reverted, home: home, logf: t.Logf}}).settleExit(exit("America/Detroit", "US")); got.Timezone != "America/Detroit" {
 		t.Errorf("reverted: reported %s, want GeoJS's America/Detroit", got.Timezone)
 	}
 	denied := atHome()
 	denied.failSet = true
-	if got := (&agent{agentConfig: agentConfig{sys: denied, home: home, logf: t.Logf}}).settleExit(exit("Europe/Oslo", "NO")); got.Timezone != "Europe/Oslo" {
+	if got := (&agent{agentConfig: agentConfig{vpn: vpnOn, sys: denied, home: home, logf: t.Logf}}).settleExit(exit("Europe/Oslo", "NO")); got.Timezone != "Europe/Oslo" {
 		t.Errorf("denied: reported %s", got.Timezone)
 	}
-	if got := (&agent{agentConfig: agentConfig{sys: atHome(), home: home, logf: t.Logf}}).settleExit(exit("Mars/Olympus", "MA")); got.Timezone != "Mars/Olympus" {
+	if got := (&agent{agentConfig: agentConfig{vpn: vpnOn, sys: atHome(), home: home, logf: t.Logf}}).settleExit(exit("Mars/Olympus", "MA")); got.Timezone != "Mars/Olympus" {
 		t.Errorf("unknown zone: reported %s", got.Timezone)
 	}
 }
@@ -186,6 +186,7 @@ func TestRunAgentMovesWindowsAndWritesItsPlace(t *testing.T) {
 	defer cancel()
 	err := runAgent(ctx, agentConfig{
 		watch: watchConfig{lookup: lookup, fingerprint: func() string { return "" }, logf: t.Logf, poll: 5 * time.Millisecond, watch: time.Hour},
+		vpn:   vpnOn,
 		sys:   f, home: home, state: state, logf: t.Logf,
 	})
 	if err != nil {
@@ -211,6 +212,7 @@ func newAgent(t *testing.T) (*agent, *fakeZones, *[]agentReport) {
 	lookup, _ := sequence(exit("Asia/Dushanbe", "TJ"))
 	g := &agent{agentConfig: agentConfig{
 		watch: watchConfig{lookup: lookup, fingerprint: func() string { return "" }, logf: t.Logf, poll: time.Hour, watch: time.Hour},
+		vpn:   vpnOn,
 		sys:   f, home: home, state: filepath.Join(t.TempDir(), "agent.json"), logf: t.Logf,
 		report:      func(r agentReport) { reports = append(reports, r) },
 		followAlibi: func() bool { return true },
@@ -325,6 +327,7 @@ func TestReassertPutsTheZoneBack(t *testing.T) {
 	lookup, calls := sequence(exit("Asia/Dushanbe", "TJ"))
 	g := &agent{agentConfig: agentConfig{
 		watch: watchConfig{lookup: lookup, fingerprint: func() string { return "" }, logf: t.Logf, poll: time.Hour, watch: time.Hour},
+		vpn:   vpnOn,
 		sys:   f, home: home, state: state, logf: t.Logf,
 	}}
 	g.reassert() // nothing found yet: nothing to do
@@ -357,6 +360,7 @@ func TestDryRunChangesNothing(t *testing.T) {
 	defer cancel()
 	runAgent(ctx, agentConfig{
 		watch: watchConfig{lookup: lookup, fingerprint: func() string { return "" }, logf: t.Logf, poll: 5 * time.Millisecond, watch: time.Hour},
+		vpn:   vpnOn,
 		sys:   f, home: home, state: state, dryRun: true, logf: t.Logf,
 	})
 	if len(f.calls) > 0 {
@@ -480,54 +484,64 @@ func TestTheAgentsOwnChangeIsNotHome(t *testing.T) {
 	}
 }
 
-// An exit in your own country, but in another zone (a US VPN server across the country), still moves
-// Windows: only the connection you set your own zone on keeps it.
-func TestAnExitInAnotherZoneAtHomeStillMoves(t *testing.T) {
+func vpnOn() bool { return true }
+
+// With no VPN up, the system stays home, exactly, whatever GeoJS says: your own ISP can show up in
+// another zone of a big country. With one up, an exit in another zone moves it, in your own country too.
+func TestTheClockMovesOnlyWhileAVPNIsUp(t *testing.T) {
 	g, f, _ := newAgent(t)
 	f.zoneNow, f.regionNow = "Eastern Standard Time", "US"
 	g.home = setting{"Eastern Standard Time", "US"}
-	g.homeFile = filepath.Join(t.TempDir(), "home.json")
-	g.found, g.have = exit("America/New_York", "US"), true // at home first
+	up := false
+	g.vpn = func() bool { return up }
+	g.found, g.have = exit("America/Chicago", "US"), true // your own ISP, placed in Chicago
 	g.reassert()
+	if len(f.calls) > 0 {
+		t.Errorf("with no VPN, moved Windows: %v", f.calls)
+	}
+	g.found = exit("Asia/Dushanbe", "TJ")
+	g.reassert()
+	if len(f.calls) > 0 {
+		t.Errorf("with no VPN, moved Windows to an exit abroad: %v", f.calls)
+	}
+	up = true
 	g.found = exit("America/Los_Angeles", "US")
 	g.reassert()
 	if f.zoneNow != "Pacific Standard Time" {
-		t.Fatalf("Windows on %s, want the exit's Pacific", f.zoneNow)
+		t.Errorf("with a VPN to Los Angeles, Windows on %s", f.zoneNow)
 	}
-	f.zoneNow = "Eastern Standard Time" // you set your own back, on that same connection
+	up = false // the VPN drops
 	g.reassert()
-	if f.zoneNow != "Eastern Standard Time" {
-		t.Errorf("your zone was put back to %s", f.zoneNow)
+	if f.zoneNow != "Eastern Standard Time" || f.regionNow != "US" {
+		t.Errorf("VPN down: Windows on %s/%s, want home", f.zoneNow, f.regionNow)
 	}
-	if h := readHomeFile(t, g.homeFile); h.SetOn != "America/Los_Angeles" || h.Held != nil {
-		t.Errorf("home.json %+v", h)
-	}
-	g.found = exit("America/Chicago", "US") // another exit, another zone: it moves again
-	g.reassert()
-	if f.zoneNow != "Central Standard Time" {
-		t.Errorf("Windows on %s, want Central", f.zoneNow)
+	// A place in Alibi, with Follow Alibi's location on, needs no VPN.
+	g.setWish(&wish{Configuration: "tokyo", Timezone: "Asia/Tokyo"})
+	if f.zoneNow != "Tokyo Standard Time" {
+		t.Errorf("Alibi's place: Windows on %s", f.zoneNow)
 	}
 }
 
-// No VPN, and GeoJS puts your own ISP in another zone of your country: the first connection seen at
-// home is home's, so Windows stays as it is.
-func TestYourOwnISPInAnotherZoneDoesntMoveTheClock(t *testing.T) {
-	g, f, _ := newAgent(t)
-	f.zoneNow, f.regionNow = "Eastern Standard Time", "US"
-	g.home = setting{"Eastern Standard Time", "US"}
-	g.homeFile = filepath.Join(t.TempDir(), "home.json")
-	g.found, g.have = exit("America/Chicago", "US"), true
-	g.reassert()
-	if len(f.calls) > 0 || f.zoneNow != "Eastern Standard Time" {
-		t.Errorf("moved Windows to %s with no VPN: %v", f.zoneNow, f.calls)
-	}
-	if h := readHomeFile(t, g.homeFile); h.SetOn != "America/Chicago" {
-		t.Errorf("home.json %+v, want the first connection's zone as home's", h)
-	}
-	g.found = exit("America/Los_Angeles", "US") // a VPN exit in another zone still moves it
-	g.reassert()
-	if f.zoneNow != "Pacific Standard Time" {
-		t.Errorf("Windows on %s, want the exit's Pacific", f.zoneNow)
+// What counts as a VPN's adapter: PPP (IKEv2, SSTP, L2TP), a tunnel, a software adapter such as
+// WireGuard's, or one that says it's a VPN's. Wi-Fi, Ethernet and Hyper-V's switches don't.
+func TestIsVPNAdapter(t *testing.T) {
+	for _, c := range []struct {
+		ifType uint32
+		names  []string
+		want   bool
+	}{
+		{23, []string{"Office", "WAN Miniport (IKEv2)"}, true},
+		{131, nil, true},
+		{53, []string{"wg0", "WireGuard Tunnel"}, true},
+		{6, []string{"Ethernet 3", "TAP-Windows Adapter V9"}, true},
+		{6, []string{"OpenVPN Data Channel Offload for Surfshark", "OpenVPN Data Channel Offload"}, true},
+		{71, []string{"Wi-Fi", "Intel(R) Wi-Fi 7 BE200 320MHz"}, false},
+		{6, []string{"Ethernet", "Intel(R) Ethernet Controller I226-V"}, false},
+		{6, []string{"vEthernet (Default Switch)", "Hyper-V Virtual Ethernet Adapter"}, false},
+	} {
+		if got := isVPNAdapter(c.ifType, c.names...); got != c.want {
+			t.Errorf("%d %v: %v, want %v", c.ifType, c.names, got, c.want)
+		}
 	}
 }
 
@@ -535,6 +549,7 @@ func TestYourOwnISPInAnotherZoneDoesntMoveTheClock(t *testing.T) {
 func TestAZoneYouSetAtHomeStays(t *testing.T) {
 	g, f := newHomeAgent(t)
 	g.found = exit("Asia/Tehran", "IR") // at home, no VPN
+	g.vpn = func() bool { return false }
 	g.reassert()
 	if len(f.calls) > 0 {
 		t.Fatalf("at home, changed %v", f.calls)

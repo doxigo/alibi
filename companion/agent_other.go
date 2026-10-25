@@ -21,3 +21,6 @@ func clockNotesHere() clockNotes                  { return nil }
 func autoTimeZone() bool                          { return false }
 
 func agentCommand(system, []string, io.Writer) error { return errNoAgent }
+
+// vpnUp is Windows-only for now, like the agent that asks it.
+func vpnUp() bool { return false }
