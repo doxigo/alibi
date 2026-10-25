@@ -551,6 +551,47 @@ func TestAutomaticTimeZoneIsLeftAlone(t *testing.T) {
 	}
 }
 
+// Turning on Windows' automatic time zone while the agent holds Windows on a VPN's zone first puts
+// back what the agent set, the region too, which the automatic time zone never touches.
+func TestAutomaticTimeZoneTakesBackWhatTheAgentSet(t *testing.T) {
+	g, f := newHomeAgent(t)
+	g.found = exit("Europe/Oslo", "NO")
+	g.reassert()
+	if f.zoneNow != "W. Europe Standard Time" || f.regionNow != "NO" {
+		t.Fatalf("on the VPN: Windows on %s/%s", f.zoneNow, f.regionNow)
+	}
+	auto := true
+	g.autoZone = func() bool { return auto }
+	f.zoneNow = "Arabian Standard Time" // the automatic time zone moves the zone only
+	g.reassert()
+	if f.zoneNow != "Arabian Standard Time" || f.regionNow != home.Region {
+		t.Errorf("Windows on %s/%s, want the automatic zone and home's region", f.zoneNow, f.regionNow)
+	}
+	// With Windows' location service off, the automatic time zone moves nothing: the agent's zone goes too.
+	g2, f2 := newHomeAgent(t)
+	g2.found = exit("Europe/Oslo", "NO")
+	g2.reassert()
+	g2.autoZone = func() bool { return true }
+	g2.reassert()
+	if f2.zoneNow != home.Zone || f2.regionNow != home.Region {
+		t.Errorf("location service off: Windows on %s/%s, want home", f2.zoneNow, f2.regionNow)
+	}
+}
+
+// With no VPN, Alibi still hears where the connection comes out: Windows stays home, so the place keeps
+// GeoJS's zone, unless Windows already reads as it (America/New_York for a Detroit exit).
+func TestWithNoVPNAlibiHearsTheConnectionsZone(t *testing.T) {
+	g := &agent{agentConfig: agentConfig{sys: atHome(), home: home, logf: t.Logf}}
+	if got := g.settleExit(exit("Asia/Dushanbe", "TJ")); got.Timezone != "Asia/Dushanbe" {
+		t.Errorf("Tajikistan with no VPN: reported %s, want GeoJS's Asia/Dushanbe", got.Timezone)
+	}
+	eastern := setting{"Eastern Standard Time", "US"}
+	us := &agent{agentConfig: agentConfig{sys: &fakeZones{zoneNow: eastern.Zone, regionNow: eastern.Region}, home: eastern, logf: t.Logf}}
+	if got := us.settleExit(exit("America/Detroit", "US")); got.Timezone != "America/New_York" {
+		t.Errorf("Detroit with no VPN: reported %s, want Windows' America/New_York", got.Timezone)
+	}
+}
+
 // What counts as a VPN's adapter: PPP (IKEv2, SSTP, L2TP), a tunnel, a software adapter such as
 // WireGuard's, or one that says it's a VPN's. Wi-Fi, Ethernet and Hyper-V's switches don't.
 func TestIsVPNAdapter(t *testing.T) {
