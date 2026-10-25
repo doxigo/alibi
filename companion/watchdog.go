@@ -35,7 +35,9 @@ type settings struct {
 func (s settings) followsAlibi() bool { return s.Sync && s.FollowAlibi }
 
 func defaultSettings() settings {
-	return settings{Alerts: true, Sound: true, EdgeLine: true}
+	// Alerts on, as Whereabouts colours its menu bar and notifies; the sound and the red line are for you
+	// to turn on.
+	return settings{Alerts: true}
 }
 
 // loadSettings reads settings.json; anything it doesn't say keeps its default.
@@ -175,9 +177,8 @@ func judge(place cover, leaks leakReport, home string, s settings) (verdict, []s
 		problems = append(problems, fmt.Sprintf("Your connection comes out in %s, which you blocked.", name(place.Country)))
 	case len(s.Allowed) > 0 && !slices.Contains(s.Allowed, place.Country):
 		problems = append(problems, fmt.Sprintf("Your connection comes out in %s, which isn't one of your countries.", name(place.Country)))
-	case len(s.Allowed) == 0 && home != "" && place.Country == home:
-		problems = append(problems, fmt.Sprintf("Your connection comes out at home, in %s. Is the VPN off?", name(home)))
 	}
+	// With no countries picked, every place passes, as in Whereabouts: coming out at home is fine.
 	away := place.Country != home
 	if leaks.IPv6At.Country != "" && leaks.IPv6At.Country != place.Country {
 		problems = append(problems, fmt.Sprintf("IPv6 traffic comes out in %s, outside the VPN.", name(leaks.IPv6At.Country)))

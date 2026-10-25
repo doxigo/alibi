@@ -14,7 +14,7 @@ import (
 
 func TestSettings(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "settings.json")
-	if got := loadSettings(path); got.Sync || !got.Alerts || !got.Sound || !got.EdgeLine {
+	if got := loadSettings(path); got.Sync || !got.Alerts || got.Sound || got.EdgeLine {
 		t.Errorf("defaults: %+v", got)
 	}
 	os.WriteFile(path, []byte(`{"sound": false, "timezoneSync": true, "allowedCountries": ["no", " se ", "bogus", "X1"], "homeCountry": "ir"}`), 0o644)
@@ -79,7 +79,9 @@ func TestJudge(t *testing.T) {
 	}{
 		{"no answer yet", cover{}, none, "IR", s, unknown, ""},
 		{"away from home", at("TJ"), none, "IR", s, fine, ""},
-		{"VPN off: at home", at("IR"), none, "IR", s, wrong, "comes out at home, in Iran. Is the VPN off?"},
+		// No countries picked: every place passes, at home too, as in Whereabouts.
+		{"at home, no countries picked", at("IR"), none, "IR", s, fine, ""},
+		{"blocked home", at("IR"), none, "IR", settings{Blocked: []string{"IR"}}, wrong, "in Iran, which you blocked"},
 		{"home unknown", at("IR"), none, "", s, fine, ""},
 		{"blocked", at("RU"), none, "IR", settings{Blocked: []string{"RU"}}, wrong, "in Russia, which you blocked"},
 		{"not allowed", at("DE"), none, "IR", settings{Allowed: []string{"NO", "SE"}}, wrong, "in Germany, which isn't one of your countries"},
