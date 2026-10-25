@@ -563,6 +563,7 @@ func TestIsVPNAdapter(t *testing.T) {
 		{131, nil, true},
 		{53, []string{"wg0", "WireGuard Tunnel"}, true},
 		{6, []string{"Ethernet 3", "TAP-Windows Adapter V9"}, true},
+		{6, []string{"Ethernet 4", "TAP-Surfshark Windows Adapter V9"}, true},
 		{6, []string{"OpenVPN Data Channel Offload for Surfshark", "OpenVPN Data Channel Offload"}, true},
 		{71, []string{"Wi-Fi", "Intel(R) Wi-Fi 7 BE200 320MHz"}, false},
 		{6, []string{"Ethernet", "Intel(R) Ethernet Controller I226-V"}, false},

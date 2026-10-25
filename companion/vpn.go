@@ -16,8 +16,8 @@ const (
 )
 
 // Words in an adapter's name or description that mark one from a VPN, whatever type it reports
-// (OpenVPN's TAP adapter calls itself Ethernet).
-var vpnMarkers = []string{"wireguard", "wintun", "tap-windows", "openvpn", "amneziawg", "vpn"}
+// (OpenVPN's TAP adapter calls itself Ethernet, and VPN apps rename it: TAP-Surfshark Windows Adapter).
+var vpnMarkers = []string{"wireguard", "wintun", "tap-", "openvpn", "amneziawg", "vpn"}
 
 // isVPNAdapter reports whether an adapter of this type, with these names, is a VPN's.
 func isVPNAdapter(ifType uint32, names ...string) bool {
