@@ -35,10 +35,10 @@ func host(origin string, stdin io.Reader, stdout, stderr io.Writer) int {
 	l, layoutErr := currentLayout(sys)
 	s := &sender{out: stdout}
 	// Covers go to an agent that keeps the system's clock on Alibi's location: only Windows has one, and
-	// only while its tray follows Alibi. Otherwise Alibi would hold the port open for nothing. If the
-	// tray's switches change, Alibi hears hello again, and opens or closes the port to suit.
+	// only while its tray follows Alibi and is up (trayUp). Otherwise Alibi would hold the port open for
+	// nothing. If either changes, Alibi hears hello again, and opens or closes the port to suit.
 	hasAgent := layoutErr == nil && l.agent != nil
-	takes := func() bool { return hasAgent && loadSettings(l.agent.settings).followsAlibi() }
+	takes := func() bool { return hasAgent && loadSettings(l.agent.settings).followsAlibi() && trayUp(sys) }
 	var takesCovers atomic.Bool
 	takesCovers.Store(takes())
 	if err := s.hello(takesCovers.Load()); err != nil {
@@ -203,6 +203,19 @@ func (s *sender) sendSystem(zone string) error {
 
 // How often the host reads the tray's switches again, to tell Alibi when it starts or stops taking covers.
 var settingsEvery = 2 * time.Second
+
+// trayUp reports whether the tray app runs, or starts at sign-in: then it may just not be up yet,
+// when a browser that starts with the session starts the host first.
+var trayUp = func(sys system) bool {
+	if sys.agent != nil && sys.agent.running() {
+		return true
+	}
+	if sys.registry == nil {
+		return false
+	}
+	_, atSignIn, _ := sys.registry.value(runKey, runName)
+	return atSignIn
+}
 
 // An Alibi that hasn't said within this long whether it follows the IP is one from before it said so,
 // which only ever opens the port while a cover follows the IP.

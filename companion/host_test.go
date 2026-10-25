@@ -509,8 +509,11 @@ func TestHostAnswersAlibiAndExitsWhenThePortCloses(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("XDG_DATA_HOME", "")
 	t.Setenv("XDG_CONFIG_HOME", "")
-	// The tray follows Alibi's location, so on Windows the host takes covers.
+	// The tray follows Alibi's location, and is up, so on Windows the host takes covers.
 	saveSettings(filepath.Join(local, "Programs", "Alibi Companion", "settings.json"), settings{Sync: true, FollowAlibi: true})
+	was := trayUp
+	trayUp = func(system) bool { return true }
+	t.Cleanup(func() { trayUp = was })
 
 	stdinR, stdinW := io.Pipe()
 	stdoutR, stdoutW := io.Pipe()
@@ -579,6 +582,11 @@ func TestHostSaysHelloAgainWhenTheTraySwitches(t *testing.T) {
 	t.Setenv("ALIBI_COMPANION_GEOJS_URL", "http://127.0.0.1:9") // nothing is looked up anyway
 	path := filepath.Join(local, "Programs", "Alibi Companion", "settings.json")
 	saveSettings(path, settings{Sync: true})
+	var up atomic.Bool
+	up.Store(true)
+	was := trayUp
+	trayUp = func(system) bool { return up.Load() }
+	t.Cleanup(func() { trayUp = was })
 
 	stdinR, stdinW := io.Pipe()
 	stdoutR, stdoutW := io.Pipe()
@@ -619,6 +627,15 @@ func TestHostSaysHelloAgainWhenTheTraySwitches(t *testing.T) {
 	saveSettings(path, settings{Sync: true, FollowAlibi: true})
 	if accepts := hello(); len(accepts) != 1 || accepts[0] != "cover" {
 		t.Errorf("after switching it on, accepts %v", accepts)
+	}
+	// Quit, and not starting at sign-in: nothing would move the clock, so no covers.
+	up.Store(false)
+	if accepts := hello(); len(accepts) != 0 {
+		t.Errorf("with the tray app gone, accepts %v", accepts)
+	}
+	up.Store(true)
+	if accepts := hello(); len(accepts) != 1 {
+		t.Errorf("with the tray app back, accepts %v", accepts)
 	}
 	stdinW.Close()
 	go func() {
