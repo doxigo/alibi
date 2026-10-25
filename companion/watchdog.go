@@ -9,6 +9,7 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -83,7 +84,33 @@ type leakChecker struct {
 }
 
 func newLeakChecker(g *geoJS) leakChecker {
-	return leakChecker{resolverIP: resolverIP, about: g.about, overIPv6: g.overIPv6}
+	return leakChecker{resolverIP: resolverIP, about: remembered(g.about, time.Hour, time.Now), overIPv6: g.overIPv6}
+}
+
+// remembered keeps where an address is for a while, as Whereabouts does with DNS resolvers: the checks
+// every 5 minutes keep asking about the same one, and a resolver doesn't move.
+func remembered(about func(context.Context, string) (geoAnswer, error), keep time.Duration, now func() time.Time) func(context.Context, string) (geoAnswer, error) {
+	type answer struct {
+		at time.Time
+		geoAnswer
+	}
+	var mu sync.Mutex
+	seen := map[string]answer{}
+	return func(ctx context.Context, ip string) (geoAnswer, error) {
+		mu.Lock()
+		hit, ok := seen[ip]
+		mu.Unlock()
+		if ok && now().Sub(hit.at) < keep {
+			return hit.geoAnswer, nil
+		}
+		a, err := about(ctx, ip)
+		if err == nil {
+			mu.Lock()
+			seen[ip] = answer{now(), a}
+			mu.Unlock()
+		}
+		return a, err
+	}
 }
 
 // resolverIP asks whoami.akamai.net, whose servers answer with the address of the DNS resolver
