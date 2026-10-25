@@ -522,6 +522,35 @@ func TestTheClockMovesOnlyWhileAVPNIsUp(t *testing.T) {
 	}
 }
 
+// While Windows' own automatic time zone is on, the agent leaves the zone alone, as Whereabouts does,
+// instead of putting it back every time. A zone it sets becomes home.
+func TestAutomaticTimeZoneIsLeftAlone(t *testing.T) {
+	g, f := newHomeAgent(t)
+	auto := true
+	g.autoZone = func() bool { return auto }
+	g.reassert()
+	g.setWish(&wish{Configuration: "tokyo", Timezone: "Asia/Tokyo"})
+	if len(f.calls) > 0 {
+		t.Fatalf("changed %v with automatic time zone on", f.calls)
+	}
+	f.zoneNow = "Arabian Standard Time" // where Windows' location service puts you
+	g.reassert()
+	if f.zoneNow != "Arabian Standard Time" || len(f.calls) > 0 {
+		t.Errorf("put the zone back: %v", f.calls)
+	}
+	if h := readHomeFile(t, g.homeFile); h.Zone != "Arabian Standard Time" {
+		t.Errorf("home.json %+v, want the automatic zone as home", h)
+	}
+	if r := g.reportLocked("", ""); !r.AutoZone {
+		t.Error("the tray isn't told why the agent waits")
+	}
+	auto = false // switched off: the agent follows again, here Alibi's place
+	g.reassert()
+	if f.zoneNow != "Tokyo Standard Time" {
+		t.Errorf("after switching it off, Windows on %s", f.zoneNow)
+	}
+}
+
 // What counts as a VPN's adapter: PPP (IKEv2, SSTP, L2TP), a tunnel, a software adapter such as
 // WireGuard's, or one that says it's a VPN's. Wi-Fi, Ethernet and Hyper-V's switches don't.
 func TestIsVPNAdapter(t *testing.T) {
