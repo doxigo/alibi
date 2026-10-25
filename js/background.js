@@ -214,6 +214,14 @@ chrome.runtime.onStartup.addListener(() => {
   probeCompanion()
 })
 
+// The popup opening asks again too, with a place for all sites and no companion known to take it: its
+// switch for following Alibi may have been turned on since, with no host running to say hello again.
+chrome.runtime.onMessage.addListener((message) => {
+  if (!message?.checkCompanion) return
+  chrome.storage.local.get(['configuration', 'timezone', 'companion'])
+    .then((stored) => stored.companion !== true && holdsPlace(stored) && probeCompanion())
+})
+
 // What only says how the companion is doing changes no cover, so nothing is synced again for it.
 const BOOKKEEPING = ['companion', 'systemZone']
 chrome.storage.onChanged.addListener((changes) => {
