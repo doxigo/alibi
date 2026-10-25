@@ -314,7 +314,7 @@ func agentCommand(sys system, options []string, stderr io.Writer) error {
 		if err != nil {
 			return fmt.Errorf("couldn't look up the connection: %w", err)
 		}
-		home, err := currentHome(sys.zones, l.agent.home)
+		home, err := currentHome(sys.zones, l.agent.home, notesOf(sys.notes))
 		if err != nil {
 			return err
 		}

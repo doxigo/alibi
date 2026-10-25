@@ -735,13 +735,21 @@ func loadHome(sys zoneSystem, path string, others []clockNote) (homeState, error
 	return h, saveHome(path, h)
 }
 
-// currentHome is home as the agent last recorded it, or how the system is set now if it hasn't yet.
-// It changes nothing: only the agent records home.
-func currentHome(sys zoneSystem, path string) (setting, error) {
+// currentHome is home as the agent last recorded it, or how the system is set now if it hasn't yet:
+// unless another user's agent left the system there, when it's that agent's home, as loadHome takes
+// it. It changes nothing: only the agent records home.
+func currentHome(sys zoneSystem, path string, others []clockNote) (setting, error) {
 	if h, err := readHome(path); err == nil {
 		return h.setting, nil
 	}
-	return currentSetting(sys)
+	now, err := currentSetting(sys)
+	if err != nil {
+		return now, err
+	}
+	if note, ok := leftBy(others, now.Zone); ok && note.Home != "" {
+		return setting{Zone: note.Home, Region: now.Region}, nil
+	}
+	return now, nil
 }
 
 // restoreHome puts the system back home, if it's still where the agent left it, and forgets home.

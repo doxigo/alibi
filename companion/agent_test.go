@@ -731,6 +731,11 @@ func TestAZoneAnotherAgentLeftIsNotHome(t *testing.T) {
 	if _, restored, _ := restoreHome(f, ran); !restored || f.zoneNow != "Arabian Standard Time" {
 		t.Errorf("letting go: restored %v, Windows on %s", restored, f.zoneNow)
 	}
+	// Before then, what install and status call home is the other agent's too.
+	f.zoneNow = "Tokyo Standard Time"
+	if h, _ := currentHome(f, filepath.Join(t.TempDir(), "home.json"), left); h.Zone != home.Zone {
+		t.Errorf("current home %+v, want the other agent's home", h)
+	}
 	// Without such a note, a zone found at start is a change of yours, as before.
 	f.zoneNow = "Tokyo Standard Time"
 	none := filepath.Join(t.TempDir(), "home.json")
