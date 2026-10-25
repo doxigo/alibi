@@ -101,7 +101,7 @@ const (
 
 // agentFiles is where the time zone agent keeps itself and what it knows.
 type agentFiles struct {
-	exe      string // the windowed copy that Windows starts at sign-in
+	exe      string // the windowed copy: the tray app
 	home     string // home.json: how the system was before the agent first changed it
 	state    string // agent.json: its latest place, for the host
 	log      string // agent.log
