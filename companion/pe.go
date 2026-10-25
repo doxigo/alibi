@@ -7,8 +7,8 @@ import (
 
 // guiSubsystem returns a Windows program, given as its bytes, marked as a windowed program rather
 // than a console one, as `editbin /subsystem:windows` does: the same code, one header field apart.
-// Windows then starts it at sign-in with no console window. The command line, and the browser
-// starting the host, keep the console program.
+// Windows then starts it, from the Start menu or at sign-in, with no console window. The command
+// line, and the browser starting the host, keep the console program.
 func guiSubsystem(program []byte) ([]byte, error) {
 	const (
 		peSignature = 0x00004550 // "PE\0\0"

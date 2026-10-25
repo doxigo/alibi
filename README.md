@@ -101,7 +101,7 @@ Whenever the connection moves, and every 5 minutes, the tray app also checks whe
 Limits:
 
 - It has no kill switch. Use your VPN's own (WireGuard: **Block untunneled traffic**), which stops traffic before any of it can leave the tunnel.
-- It moves the clock only while it sees a VPN: a connected PPP, tunnel or virtual network adapter (IKEv2, SSTP, L2TP, WireGuard and most VPN apps use one), or one with WireGuard, OpenVPN, TAP or VPN in its name. A VPN on your router, or one whose adapter looks like plain Ethernet, isn't seen, so Windows stays on your own zone.
+- It follows your VPN only while it sees one: a connected PPP, tunnel or virtual network adapter (IKEv2, SSTP, L2TP, WireGuard and most VPN apps use one), or one with WireGuard, OpenVPN, TAP or VPN in its name. A VPN on your router, or one whose adapter looks like plain Ethernet, isn't seen, so Windows stays on your own zone. A place from Alibi, with **or on Alibi's location for all sites** on, needs no VPN.
 - While it follows your VPN, a zone you set by hand becomes home, but the exit's zone goes back on until the VPN disconnects. Turn off **Keep Windows on my VPN's time zone** in the tray menu to keep your own everywhere.
 - Windows has one clock, so it follows the **All sites** cover only. A site with its own cover gets it in the browser only, as before. With Alibi in more than one browser or profile, Windows follows the newest place among those still open; Off or Match my IP address in one never outvotes a place in another.
 - Windows has one clock for everyone signed in, too: one user's companion keeps it at a time. Another user's shows that it's waiting, moves nothing, and takes over once the first signs out.

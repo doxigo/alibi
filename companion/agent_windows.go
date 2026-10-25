@@ -295,7 +295,8 @@ func quitEvent(name string) (windows.Handle, error) {
 	return quit, nil
 }
 
-// agentCommand is `alibi-companion agent`: the hidden program Windows starts at sign-in.
+// agentCommand is `alibi-companion agent`: the tray app, which the Start menu starts, and Windows at
+// sign-in if you turn that on.
 // With --dry-run it looks once and prints what it would set, changing nothing.
 func agentCommand(sys system, options []string, stderr io.Writer) error {
 	l, err := currentLayout(sys)
@@ -486,8 +487,8 @@ func agentCommand(sys system, options []string, stderr io.Writer) error {
 	cancel()
 	running.Wait()
 	os.Remove(l.agent.state) // the host stops relaying at once, rather than after agentQuiet
-	// Quit from the tray: Windows goes back home until the next sign-in, unless something else has
-	// moved it since the agent did.
+	// Quit from the tray: Windows goes back home until the tray app runs again, unless something else
+	// has moved it since the agent did.
 	if tray.quitByUser {
 		follower.finish()
 	}
