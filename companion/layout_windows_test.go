@@ -84,13 +84,19 @@ func windowsSystem(t *testing.T, self string) *windowsTest {
 	base := t.TempDir()
 	w := &windowsTest{reg: fakeRegistry{}, zones: atHome(), agent: &fakeAgentControl{}, autoTZ: &fakeAutoTZ{}}
 	w.sys = system{
-		getenv:    func(k string) string { return map[string]string{"LOCALAPPDATA": base}[k] },
+		getenv: func(k string) string {
+			return map[string]string{"LOCALAPPDATA": base, "APPDATA": filepath.Join(base, "Roaming")}[k]
+		},
 		self:      func() (string, error) { return self, nil },
 		registry:  w.reg,
 		zones:     w.zones,
 		agent:     w.agent,
 		autoTZ:    w.autoTZ,
 		makeAgent: func(p []byte) ([]byte, error) { return append([]byte("windowed "), p...), nil },
+		shortcut: func(path, target, args, _ string) error {
+			os.MkdirAll(filepath.Dir(path), 0o755)
+			return os.WriteFile(path, []byte(target+" "+args), 0o644)
+		},
 	}
 	l, err := currentLayout(w.sys)
 	if err != nil {
@@ -166,10 +172,14 @@ func TestWindowsInstallSetsUpTheTrayApp(t *testing.T) {
 	if loadSettings(w.l.agent.settings).Sync {
 		t.Error("a plain install keeps Windows on the VPN's time zone")
 	}
-	for _, want := range []string{"runs in the tray", "Start when I sign in", "Windows' time zone stays yours (Iran Standard Time, region US)", "--timezone"} {
+	for _, want := range []string{"runs in the tray", "Start when I sign in", "start it from the Start menu", "Windows' time zone stays yours (Iran Standard Time, region US)", "--timezone"} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("output lacks %q:\n%s", want, out.String())
 		}
+	}
+	// With nothing starting it at sign-in, the Start menu does.
+	if b, err := os.ReadFile(w.l.agent.shortcut); err != nil || string(b) != w.l.agent.exe+" agent" {
+		t.Errorf("Start menu shortcut %q %v, want one that starts %s agent", b, err, w.l.agent.exe)
 	}
 	// --timezone turns it on; an update keeps a sign-in entry you turned on, pointed at the new copy.
 	w.reg.setValue(runKey, runName, `"C:\old\alibi-companion-agent.exe" agent`)
@@ -407,6 +417,9 @@ func TestWindowsUninstall(t *testing.T) {
 		entries, _ := os.ReadDir(w.l.dir)
 		t.Errorf("%s still there: %v", w.l.dir, entries)
 	}
+	if _, err := os.Stat(w.l.agent.shortcut); !os.IsNotExist(err) {
+		t.Error("the Start menu shortcut is still there")
+	}
 	for _, want := range []string{"Put Windows back on Iran Standard Time, region US", "Left Microsoft Edge alone", "switch it back on in Settings", "Removed Alibi Companion"} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("output lacks %q:\n%s", want, out.String())
@@ -461,5 +474,13 @@ func TestWindowsStatus(t *testing.T) {
 	}
 	if strings.Count(after.String(), " registered\n") != len(windowsBrowsers) {
 		t.Errorf("after install: %s", after.String())
+	}
+	w.agent.on = false // quit, and not set to start at sign-in
+	var quit bytes.Buffer
+	status(w.sys, &quit, fakeLookup)
+	for _, want := range []string{"Tray app: not running now (start it from the Start menu)", "Keeps Windows on your VPN's time zone: off"} {
+		if !strings.Contains(quit.String(), want) {
+			t.Errorf("status lacks %q:\n%s", want, quit.String())
+		}
 	}
 }
