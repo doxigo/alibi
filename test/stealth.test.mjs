@@ -80,6 +80,17 @@ execFileSync('node', ['--no-warnings', '--input-type=module', '-e', `
 `], { stdio: 'inherit', env: { ...process.env, TZ: 'Asia/Kolkata' } })
 console.log('ok zone names compare as the browser names them')
 
+// Turnstile's frame keeps the real browser: it checks its language against a worker Alibi can't cover.
+execFileSync('node', ['--no-warnings', '--input-type=module', '-e', `
+  import assert from 'node:assert/strict'
+  globalThis.origin = 'https://challenges.cloudflare.com'
+  const { default: s } = await import(${JSON.stringify(new URL('../js/stealth.js', import.meta.url).href)})
+  const native = [Date, Intl.NumberFormat, Object.getOwnPropertyDescriptor(Navigator.prototype, 'language').get]
+  s({ timezone: 'Asia/Tokyo', locale: 'ja-JP' })
+  assert.deepEqual([Date, Intl.NumberFormat, Object.getOwnPropertyDescriptor(Navigator.prototype, 'language').get], native)
+`], { stdio: 'inherit' })
+console.log('ok Turnstile frame left alone')
+
 // "Match my IP address" covers move with the connection; every other cover stays put.
 globalThis.chrome = { runtime: { getManifest: () => ({ permissions: [] }) } }
 const { checkedCover, followIp, followsIp, sameZone } = await import('../js/sites.js')

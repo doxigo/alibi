@@ -6,6 +6,11 @@
 // Third-party scripts, where fingerprinting comes from, can't start file workers anyway: a worker's
 // script must come from the page's own site, so they use blob workers, which are covered.
 export default function stealth(config) {
+  // Cloudflare Turnstile's frame fails the check (and the site's sign-in) when its navigator.language(s)
+  // differ from its own blob worker's. That frame's policy blocks reading the worker's script, so the
+  // worker can't be covered and already shows Cloudflare the real browser. Patching the frame would hide
+  // nothing, so it is left alone. `origin` also matches its about:blank and blob: children.
+  if (globalThis.origin === 'https://challenges.cloudflare.com') return
   let { timezone, locale, lat, lon } = config
   // A bad zone or locale would make every Intl call on the page throw; drop it instead.
   try {
