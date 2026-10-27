@@ -264,7 +264,7 @@ const selectScope = (next) => {
 // --- Mode ----------------------------------------------------------------------------------
 
 const renderMode = () => {
-  modeNote.textContent = deepInput.checked ? 'Chrome shows a debugging banner.' : 'No browser banner.'
+  modeNote.textContent = deepInput.checked ? 'Shows a debugging banner.' : 'No browser banner.'
   updateHint()
 }
 
