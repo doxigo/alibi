@@ -1,6 +1,6 @@
 # Chrome Web Store listing
 
-Upload `alibi-store.zip` from `yarn build:store`. That build leaves out the `userScripts` permission, because the Web Store reserves it for running scripts users write. Stealth mode then uses its injection fallback.
+Upload `alibi-store.zip` from `yarn build:store`. That build leaves out the `userScripts` permission, because the Web Store reserves it for running scripts users write. Stealth mode then uses its injection fallback. It also leaves out `nativeMessaging`, so the store version doesn't talk to Whereabouts or Alibi Companion.
 
 ## Store listing
 
@@ -57,6 +57,7 @@ To change an image, edit its page in `src/` and re-render it at the size above. 
 - **scripting:** Injects the script that makes pages read the chosen time zone, locale, language and location.
 - **declarativeNetRequestWithHostAccess:** Sets the Accept-Language request header to the chosen language, per site.
 - **debugger:** Only for Deep mode, which the user turns on. Applies Chrome's built-in time zone, locale, language and geolocation emulation to the user's tabs.
+- **alarms:** Only while "Match my IP address" is on: wakes the extension once a minute to recheck the connection's approximate location, so the cover follows the VPN.
 - **webNavigation:** Detects page loads so the right cover (all sites, or a site's own) applies before the page reads it.
 - **storage:** Saves the user's settings locally.
 
