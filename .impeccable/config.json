@@ -1,0 +1,23 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "design-system-font",
+        "value": "sfmono-regular",
+        "createdAt": "2026-10-27T12:48:29.811Z",
+        "reason": "Pre-existing monospace stack for inline code (chrome://extensions, command-line flags) on the guide, domain-appropriate for code"
+      },
+      {
+        "rule": "gray-on-color",
+        "value": "*",
+        "files": [
+          "html/info.html"
+        ],
+        "createdAt": "2026-10-27T12:48:42.213Z",
+        "reason": "DESIGN.md night scheme: the guide sets night-ink-2 (#b6becd) on night-paper (#13204a), the documented secondary ink on airmail navy, about 8.3:1 contrast"
+      }
+    ]
+  }
+}
