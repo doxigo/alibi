@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "__MSG_extName__",
   "description": "__MSG_extDesc__",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "author": "Alibi",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAnMd/q9eR8FhNZXWxVcoHtYi5c9T1NsQCTIwxKU0gr++KdJ3fl2e4ZAH22hmqVI/w4NzROY7Gz7SkZTZQH9eoGHG0sAC5vqb4K0EOGAQa3KGq+bCYRAYptecPmqkT0Gf7y4BbzolnyCjEegdl+Q2E9CT6Y6NsrcGgKWRmmVE5CkeYdoPKvB/ehUe0cawpzLYs0wKoRsfAgKUHcP0uePizvmDy1foXl32vJ9NrN8GCTy0fJr+Pc1RVk3g0026emHukrB288w4QiSv8IxUPzk65lN/sq96aIaCe2OKNtkICBSxqguhlu7c58Qnb+Dn93WAI8ZzYdEUcBMTlwBinltqTgwIDAQAB",
   "default_locale": "en",
