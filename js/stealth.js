@@ -237,7 +237,14 @@ export default function stealth(config) {
       realm[name] = disguise(new Proxy(Orig, {
         construct: (target, args, newTarget) => {
           const url = String(args[0])
-          if (!url.startsWith('blob:')) return Reflect.construct(target, args, newTarget)
+          // Two kinds of site would refuse the copy below and report the attempt to the site, so their
+          // worker starts as it is: one on Trusted Types (Google Meet), which hands over a TrustedScriptURL
+          // and refuses a plain URL in its place, and one whose Permissions-Policy turns off synchronous
+          // requests (Cloudflare's dashboard), which refuses the read.
+          // ponytail: those workers keep the real zone in Stealth; a Trusted Types policy of Alibi's own could
+          // cover the first kind where the site allows one. Deep covers both already.
+          const refused = realm.trustedTypes?.isScriptURL(args[0]) || realm.document?.featurePolicy?.allowsFeature('sync-xhr') === false
+          if (!url.startsWith('blob:') || refused) return Reflect.construct(target, args, newTarget)
           try {
             let copy = copies.get(url)
             if (!copy) {

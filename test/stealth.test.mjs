@@ -91,6 +91,48 @@ execFileSync('node', ['--no-warnings', '--input-type=module', '-e', `
 `], { stdio: 'inherit' })
 console.log('ok Turnstile frame left alone')
 
+// A site on Trusted Types (Google Meet) hands Worker a TrustedScriptURL and refuses a plain URL in its
+// place, reporting it to the site. Its blob worker starts as it is, with no violation. A plain blob URL
+// still starts a covered copy.
+execFileSync('node', ['--no-warnings', '--input-type=module', '-e', `
+  import assert from 'node:assert/strict'
+  class TrustedScriptURL { constructor(url) { this.url = url } toString() { return this.url } }
+  const violations = []
+  globalThis.trustedTypes = { isScriptURL: (value) => value instanceof TrustedScriptURL }
+  globalThis.XMLHttpRequest = class { open() {} send() { this.responseText = 'postMessage(1)' } }
+  globalThis.Worker = class {
+    constructor(url) {
+      if (globalThis.enforced && !trustedTypes.isScriptURL(url)) throw new TypeError(violations.push(String(url)) && 'blocked')
+      this.url = url
+    }
+  }
+  const { default: s } = await import(${JSON.stringify(new URL('../js/stealth.js', import.meta.url).href)})
+  s({ timezone: 'Asia/Tokyo' })
+  globalThis.enforced = true
+  const trusted = new TrustedScriptURL('blob:https://meet.google.com/73844e0c')
+  assert.equal(new Worker(trusted).url, trusted)
+  assert.deepEqual(violations, [])
+  globalThis.enforced = false
+  const copy = new Worker('blob:https://example.com/1').url
+  assert.ok(copy.startsWith('blob:') && copy !== 'blob:https://example.com/1')
+`], { stdio: 'inherit' })
+console.log('ok Trusted Types workers start as they are')
+
+// A site whose Permissions-Policy turns off synchronous requests (Cloudflare's dashboard) refuses the
+// read of a blob worker's script and reports it to the site. Its worker starts as it is, unread.
+execFileSync('node', ['--no-warnings', '--input-type=module', '-e', `
+  import assert from 'node:assert/strict'
+  const reads = []
+  globalThis.document = { featurePolicy: { allowsFeature: (feature) => feature !== 'sync-xhr' } }
+  globalThis.XMLHttpRequest = class { open(method, url) { reads.push(url) } send() { throw new Error('blocked') } }
+  globalThis.Worker = class { constructor(url) { this.url = url } }
+  const { default: s } = await import(${JSON.stringify(new URL('../js/stealth.js', import.meta.url).href)})
+  s({ timezone: 'Asia/Tokyo' })
+  assert.equal(new Worker('blob:https://dash.cloudflare.com/1').url, 'blob:https://dash.cloudflare.com/1')
+  assert.deepEqual(reads, [])
+`], { stdio: 'inherit' })
+console.log('ok workers start as they are where synchronous requests are off')
+
 // A fixed cover keeps faking its zone even with the system on it, and whatever a companion says it
 // holds: if the system's zone moves later (another browser, the companion quitting), open tabs don't follow.
 execFileSync('node', ['--no-warnings', '--input-type=module', '-e', `
