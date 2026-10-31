@@ -31,6 +31,17 @@ export default function stealth(config) {
     new Intl.DateTimeFormat('en-US', { timeZone: timezone }).resolvedOptions().timeZone === Intl.DateTimeFormat().resolvedOptions().timeZone) timezone = null
   if (!(timezone || locale || lat || lon)) return // e.g. a site set to its real location
   const cover = { timezone, locale, lat, lon }
+  // The cover's locale wherever the browser would use its own: no locales at all, or an empty list,
+  // as in toLocaleTimeString([], { hour: '2-digit' }). Anything else passes through, errors and all.
+  const orCover = (l) => {
+    if (!locale) return l
+    if (l === undefined) return locale
+    try {
+      return typeof l === 'object' && l !== null && Intl.getCanonicalLocales(l).length === 0 ? locale : l
+    } catch {
+      return l
+    }
+  }
 
   // A Proxy alone prints as "function () { [native code] }" (no name), so map each one back to
   // the function it wraps when Function.prototype.toString is asked. Shared by every realm we patch.
@@ -66,11 +77,11 @@ export default function stealth(config) {
 
     if (locale) {
       for (const name of ['Collator', 'NumberFormat', 'PluralRules', 'RelativeTimeFormat', 'ListFormat', 'DisplayNames', 'DurationFormat', 'Segmenter']) {
-        wrapCtor(name, ([l, ...rest]) => [l ?? locale, ...rest])
+        wrapCtor(name, ([l, ...rest]) => [orCover(l), ...rest])
       }
-      hook(realm.Number.prototype, 'toLocaleString', (f, n, [l, o]) => Reflect.apply(f, n, [l ?? locale, o]))
-      hook(realm.BigInt.prototype, 'toLocaleString', (f, n, [l, o]) => Reflect.apply(f, n, [l ?? locale, o]))
-      hook(realm.String.prototype, 'localeCompare', (f, s, [that, l, o]) => Reflect.apply(f, s, [that, l ?? locale, o]))
+      hook(realm.Number.prototype, 'toLocaleString', (f, n, [l, o]) => Reflect.apply(f, n, [orCover(l), o]))
+      hook(realm.BigInt.prototype, 'toLocaleString', (f, n, [l, o]) => Reflect.apply(f, n, [orCover(l), o]))
+      hook(realm.String.prototype, 'localeCompare', (f, s, [that, l, o]) => Reflect.apply(f, s, [that, orCover(l), o]))
     }
 
     if (locale) {
@@ -85,7 +96,7 @@ export default function stealth(config) {
 
     if (timezone || locale) {
       const withDefaults = ([l, o]) => [
-        l ?? locale ?? undefined,
+        orCover(l),
         { ...o, timeZone: o?.timeZone ?? timezone ?? undefined },
       ]
       wrapCtor('DateTimeFormat', withDefaults)

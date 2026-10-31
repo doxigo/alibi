@@ -24,6 +24,9 @@ const stealthInput = $('input[name="mode"][value="stealth"]')
 const deepInput = $('input[name="mode"][value="deep"]')
 const modeNote = $('#modeNote')
 const userScriptsHint = $('#userScriptsHint')
+const openInput = $('input[name="webRtc"][value="open"]')
+const sealedInput = $('input[name="webRtc"][value="sealed"]')
+const webRtcNote = $('#webRtcNote')
 const die = $('#die')
 const dieRing = $('#dieRing')
 const dieCity = $('#dieCity')
@@ -274,6 +277,16 @@ const updateHint = () => {
     !userScriptsPermitted || deepInput.checked || userScriptsAvailable() || !fieldError.hidden || !ipError.hidden
 }
 
+// --- WebRTC ----------------------------------------------------------------------------------
+
+// Chrome's WebRTC setting has one holder. Another extension or a policy may have it, and then the switch changes nothing.
+const webRtcControl = chrome.privacy.network.webRTCIPHandlingPolicy.get({}).then((setting) => setting.levelOfControl)
+const renderWebRtc = async () => {
+  const elsewhere = !(await webRtcControl).endsWith('_by_this_extension')
+  webRtcNote.textContent = elsewhere ? 'Another extension or a policy decides this.'
+    : sealedInput.checked ? 'Only via your VPN or proxy.' : 'Can show sites your real IP.'
+}
+
 // --- Saving ----------------------------------------------------------------------------------
 
 // Each problem names its field so validate() can mark it.
@@ -415,6 +428,14 @@ for (const input of [stealthInput, deepInput]) {
     persist({ useDebuggerApi: deepInput.checked })
   })
 }
+// No cover changes, so unlike persist() this leaves Deep mode's tabs attached. Open pages need no
+// reload either: Chrome applies the setting to the next connection they make.
+for (const input of [openInput, sealedInput]) {
+  input.addEventListener('change', () => {
+    renderWebRtc()
+    chrome.storage.local.set({ sealWebRtc: sealedInput.checked })
+  })
+}
 $('#userScriptsLink').addEventListener('click', () =>
   chrome.tabs.create({ url: `chrome://extensions/?id=${chrome.runtime.id}` })
 )
@@ -423,7 +444,7 @@ $('#userScriptsLink').addEventListener('click', () =>
 
 // A companion that has started following Alibi's location since hears about the place now (background.js).
 chrome.runtime.sendMessage({ checkCompanion: true }).catch(() => {})
-stored = await chrome.storage.local.get(['configuration', 'timezone', 'locale', 'lat', 'lon', 'useDebuggerApi', 'sites', 'systemZone'])
+stored = await chrome.storage.local.get(['configuration', 'timezone', 'locale', 'lat', 'lon', 'useDebuggerApi', 'sites', 'systemZone', 'sealWebRtc'])
 // On shop.example.com, an existing rule for example.com is the one to show and edit.
 const matched = coverFor(tabHost, stored).site
 if (matched) {
@@ -431,10 +452,12 @@ if (matched) {
   scope = 'site'
 }
 ;(stored.useDebuggerApi ? deepInput : stealthInput).checked = true
+;(stored.sealWebRtc ? sealedInput : openInput).checked = true
 writeFields(scope === 'site' ? siteRule() : stored)
 validate()
 renderScope()
 renderMode()
+renderWebRtc()
 renderStrike()
 setInterval(updateClock, 1000)
 // The companion says it holds the system's clock a moment after a change: show it when it does.

@@ -107,7 +107,7 @@
         site you’re on: choose <strong>Give it its own cover</strong> and that site, along with its subdomains, gets
         its own settings.</p>
       <p>To keep a site on your real location, such as your bank, give it its own cover and choose
-        <strong>Off (real location)</strong>. Mode applies to all sites.</p>
+        <strong>Off (real location)</strong>. Mode and WebRTC apply to all sites.</p>
 
       <h2>Your IP address</h2>
       <p>Alibi doesn’t change your IP address. Use a VPN or proxy for that, then choose <strong>Match my IP
@@ -115,6 +115,9 @@
         (<span class="whitespace-nowrap">get.geojs.io</span>, over HTTPS) again once a minute while a cover uses that
         option, so a new VPN exit moves it within a minute. Reload open tabs to pick it up. Alibi contacts GeoJS
         for nothing else.</p>
+      <p>WebRTC, which sites use for calls, can find your real IP address by going around a proxy, or a VPN that
+        doesn’t carry everything. Set <strong>WebRTC</strong> to <strong>Sealed</strong> in the popup and it only
+        goes through your VPN or proxy. Calls may take a little longer to connect.</p>
 
       <h2>The debugging banner</h2>
       <p>Only Deep mode shows it. To keep Deep mode without the banner, start Chrome with the

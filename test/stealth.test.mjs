@@ -43,6 +43,12 @@ execFileSync('node', ['--no-warnings', '--input-type=module', '-e', `
     assert.equal(navigator.language, 'de-DE')
     assert.deepEqual([...navigator.languages], ['de-DE', 'de'])
     assert.equal(new Date(0).toLocaleDateString(undefined, { timeZone: 'UTC' }), '1.1.1970')
+    // An empty list means the default locale too; a bad argument still throws, as in a real browser.
+    assert.equal((1234.5).toLocaleString([]), '1.234,5')
+    assert.equal(new Intl.NumberFormat([]).resolvedOptions().locale, 'de-DE')
+    assert.equal(new Date(0).toLocaleTimeString([], { timeZone: 'UTC', hour: '2-digit', minute: '2-digit' }), '00:00')
+    assert.equal((1234.5).toLocaleString(['en-US']), '1,234.5')
+    assert.throws(() => new Intl.NumberFormat(null), TypeError)
     assert.equal(Function.prototype.toString.call(Intl.NumberFormat), 'function NumberFormat() { [native code] }')
     assert.equal(String(Number.prototype.toLocaleString), 'function toLocaleString() { [native code] }')
     assert.equal(Function.prototype.toString.call(Function.prototype.toString), 'function toString() { [native code] }')

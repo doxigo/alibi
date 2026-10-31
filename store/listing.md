@@ -21,6 +21,7 @@ Upload `alibi-store.zip` from `yarn build:store`. That build leaves out the `use
 > One consistent story
 > • Time zone and clock, date and number formats, navigator.language, the Accept-Language header and geolocation all agree.
 > • Iframes and the workers that scripts start follow the page they belong to.
+> • Seal WebRTC, and it can't show sites your real IP address around your VPN or proxy.
 >
 > A different cover for each site
 > • Give any site its own place. Its subdomains follow it.
@@ -56,6 +57,7 @@ To change an image, edit its page in `src/` and re-render it at the size above. 
 - **host permissions (all sites):** Spoofing has to reach every page and frame the user visits, and the Accept-Language header has to change on requests to every site.
 - **scripting:** Injects the script that makes pages read the chosen time zone, locale, language and location.
 - **declarativeNetRequestWithHostAccess:** Sets the Accept-Language request header to the chosen language, per site.
+- **privacy:** Only while the user sets WebRTC to Sealed: sets Chrome's WebRTC IP handling policy to disable_non_proxied_udp, so WebRTC can't reveal the user's IP address around their VPN or proxy. No other privacy setting is touched.
 - **debugger:** Only for Deep mode, which the user turns on. Applies Chrome's built-in time zone, locale, language and geolocation emulation to the user's tabs.
 - **alarms:** Only while "Match my IP address" is on: wakes the extension once a minute to recheck the connection's approximate location, so the cover follows the VPN.
 - **webNavigation:** Detects page loads so the right cover (all sites, or a site's own) applies before the page reads it.

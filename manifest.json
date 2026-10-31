@@ -32,7 +32,8 @@
     "userScripts",
     "declarativeNetRequestWithHostAccess",
     "debugger",
-    "nativeMessaging"
+    "nativeMessaging",
+    "privacy"
   ],
   "host_permissions": [
     "<all_urls>"

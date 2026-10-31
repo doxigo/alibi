@@ -349,6 +349,9 @@
       <li><strong>Stealth:</strong> the two workers started from this site’s own files show your real zone; third-party
         scripts can only start blob workers, which match. With “Allow User Scripts” off, the iframes and first inline
         script can show it too. <strong>Deep:</strong> every row should match.</li>
+      <li>Set <strong>WebRTC</strong> to <strong>Sealed</strong> in the popup and reload: the WebRTC row should show no
+        address. A public leak test such as <a href="https://browserleaks.com/webrtc">BrowserLeaks</a> should find
+        none either.</li>
       <li class="local-only">Open the <a id="otherSite" href="#">same page on the other site</a> to swap which address is
         the cross-site one.</li>
       <li class="hosted-only">The cross-site iframe, instant-HTML and strict-policy cases need a second site and a server
@@ -510,6 +513,8 @@
       : fetch('https://httpbin.org/headers').then((r) => r.json()).then((d) => [d.headers['Accept-Language'] ?? '', ' (as httpbin.org received it)'])
     const dateOffset = formatOffset(page.offset)
     const native = Function.prototype.toString.call(Date.prototype.getHours)
+    // toLocaleTimeString([], …) is a common way to ask for the default locale.
+    const emptyList = Intl.DateTimeFormat([]).resolvedOptions().locale
     const signals = [
       ['Date and Intl agree', intlOffset(page.zone) === dateOffset ? `<strong>Yes</strong>, both say ${dateOffset}` : `<strong class="flag">No</strong> Date says ${dateOffset}, Intl says ${intlOffset(page.zone)}`],
       ['Date as text', esc(new Date().toString())],
@@ -517,13 +522,55 @@
       ['Number, local format', esc((1234567.891).toLocaleString())],
       ['Date methods look native', native === 'function getHours() { [native code] }' ? '<strong>Yes</strong>' : `<strong class="flag">No</strong> ${esc(native.slice(0, 80))}`],
       ['Browser language', `${agrees(navigator.language) ? '' : '<strong class="flag">Differs</strong> '}${esc(navigator.languages.join(', '))}`],
+      ['Locale for an empty list, <code>[]</code>', `${agrees(emptyList) ? '' : '<strong class="flag">Differs</strong> '}${esc(emptyList)}`],
       ['Accept-Language header', '<span id="acceptLanguage">Checking…</span>'],
+      ['WebRTC public address', '<span id="webRtc">Checking…</span>'],
     ]
     document.getElementById('signals').innerHTML = signals.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('')
     acceptLanguage.then(
       ([header, how]) => (document.getElementById('acceptLanguage').innerHTML = `${agrees(header) ? '' : '<strong class="flag">Differs</strong> '}${esc(header)}${how}`),
       () => (document.getElementById('acceptLanguage').textContent = 'Couldn’t reach httpbin.org to check'),
     )
+
+    // WebRTC asks a STUN server (Google's public one, as many sites do) which address it sees. Next to
+    // the address this page's requests come from, a second one is a VPN or proxy that WebRTC went around.
+    const webRtcAddresses = async () => {
+      const pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] })
+      const found = []
+      pc.onicecandidate = ({ candidate }) => candidate?.address && found.push(candidate)
+      pc.createDataChannel('')
+      await pc.setLocalDescription()
+      await new Promise((resolve) => {
+        pc.onicegatheringstatechange = () => pc.iceGatheringState === 'complete' && resolve()
+        setTimeout(resolve, 5000)
+      })
+      pc.close()
+      const addresses = (keep) => [...new Set(found.filter(keep).map((c) => c.address))]
+      return {
+        public: addresses((c) => c.type === 'srflx' || c.type === 'prflx'),
+        // Chrome hides these behind random .local names unless the site may use the camera or microphone.
+        local: addresses((c) => c.type === 'host' && !c.address.endsWith('.local')),
+      }
+    }
+    // One reference per IP version: an IPv6 address only compares with IPv6.
+    const ipOf = (url) => fetch(url).then((r) => r.json()).then((d) => d.ip, () => null)
+    const requestIps = Promise.all([ipOf('https://api.ipify.org?format=json'), ipOf('https://api6.ipify.org?format=json')])
+    const version = (ip) => (ip.includes(':') ? 6 : 4)
+    const showWebRtc = (html) => (document.getElementById('webRtc').innerHTML = html)
+    if (!window.RTCPeerConnection) showWebRtc('<strong>None</strong>, WebRTC is off in this browser')
+    else Promise.all([webRtcAddresses(), requestIps]).then(([rtc, ips]) => {
+      const seen = ips.filter(Boolean)
+      const local = rtc.local.length ? ` · local ${esc(rtc.local.join(', '))}` : ''
+      if (!rtc.public.length) return showWebRtc(`<strong>None</strong>, WebRTC gives this page no address of yours${local}`)
+      // true, false, or null where there's no reference of that version to compare with
+      const same = (ip) => (seen.some((s) => version(s) === version(ip)) ? seen.includes(ip) : null)
+      const list = esc(rtc.public.join(', '))
+      if (rtc.public.some((ip) => same(ip) === false)) {
+        return showWebRtc(`<strong class="flag">Differs</strong> ${list}, while this page’s requests come from ${esc(seen.join(', '))}. Seal WebRTC in Alibi’s popup.${local}`)
+      }
+      if (rtc.public.every((ip) => same(ip))) return showWebRtc(`<strong>Same</strong> as this page’s requests, ${list}${local}`)
+      showWebRtc(`${list}, with no request address of the same IP version to compare (ipify.org)${local}`)
+    }, (error) => showWebRtc(`Couldn’t check: ${esc(error.message)}`))
 
     document.getElementById('locate').addEventListener('click', () => {
       const out = document.getElementById('location')

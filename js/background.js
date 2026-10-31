@@ -75,6 +75,17 @@ const syncHeaderRules = async () => {
 let headerRulesReady = syncHeaderRules().catch(console.error)
 const syncHeaders = () => (headerRulesReady = headerRulesReady.then(syncHeaderRules).catch(console.error))
 
+// WebRTC asks a STUN server, over UDP, which address it sees. UDP can go around a proxy, or a VPN that
+// doesn't take every route, and the answer is the real IP, which the page can read. Sealed, Chrome sends
+// WebRTC through the proxy only, or with no proxy over TCP alone, which the VPN carries, and asks no STUN
+// server. It's one browser-wide setting, so it holds for every site, in either mode.
+const syncWebRtc = async () => {
+  const { sealWebRtc } = await chrome.storage.local.get('sealWebRtc')
+  const policy = chrome.privacy.network.webRTCIPHandlingPolicy
+  await (sealWebRtc ? policy.set({ value: 'disable_non_proxied_udp' }) : policy.clear({}))
+}
+syncWebRtc().catch(console.error)
+
 // "Match my IP address" follows the connection. While any cover uses it, Alibi keeps a native port
 // open to Whereabouts, the companion Mac app, or on Windows and Linux to Alibi Companion (companion/),
 // which answers to the same name. Either one reports each new VPN exit the moment it sees one.
@@ -222,9 +233,10 @@ chrome.runtime.onMessage.addListener((message) => {
     .then((stored) => stored.companion !== true && holdsPlace(stored) && probeCompanion())
 })
 
-// What only says how the companion is doing changes no cover, so nothing is synced again for it.
-const BOOKKEEPING = ['companion', 'systemZone']
+// What only says how the companion is doing, or seals WebRTC, changes no cover, so no cover is synced again for it.
+const BOOKKEEPING = ['companion', 'systemZone', 'sealWebRtc']
 chrome.storage.onChanged.addListener((changes) => {
+  if (changes.sealWebRtc) syncWebRtc().catch(console.error)
   if (Object.keys(changes).every((key) => BOOKKEEPING.includes(key))) return
   settings = chrome.storage.local.get(KEYS)
   syncUserScript()

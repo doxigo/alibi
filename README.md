@@ -6,7 +6,7 @@
 
 Check what sites see: [doxigo.github.io/alibi](https://doxigo.github.io/alibi/). Download: [latest release](https://github.com/doxigo/alibi/releases/latest).
 
-Alibi is a Chrome extension that spoofs your time zone, geolocation, and locale to any location you choose. The locale also sets `navigator.language` and the `Accept-Language` header, so every place a site can ask tells the same story. Use it to test websites in different regions or to match your location data to your VPN's IP address.
+Alibi is a Chrome extension that spoofs your time zone, geolocation, and locale to any location you choose. The locale also sets `navigator.language` and the `Accept-Language` header, so every place a site can ask tells the same story. It can also seal WebRTC, so a page can't learn your real IP address by going around your VPN or proxy. Use it to test websites in different regions or to match your location data to your VPN's IP address.
 
 Alibi is a fork of [Cloaq](https://github.com/www1z4rd/cloaq) by www1z4rd and is distributed under the same GPL-3.0 license. Changes from Cloaq: it was renamed, and it adds a Stealth Mode that never attaches the debugger, so Chrome's "started debugging this browser" banner doesn't appear.
 
@@ -49,6 +49,7 @@ A browser extension can only argue from inside the browser. A site's own workers
 |---|:---:|:---:|
 | Page scripts, iframes, blob workers: time zone, locale, language, location | ✓ | |
 | The `Accept-Language` header | ✓ | |
+| WebRTC: your IP address around a proxy, or a VPN that leaves routes out (with WebRTC Sealed) | ✓ | |
 | The site's own workers and the first scripts of instant pages: time zone | | ✓ |
 | Your public IP and VPN exit, with alerts and a kill switch | | ✓ |
 | IPv6 and DNS leaks | | ✓ |
@@ -116,7 +117,7 @@ Anything that changes a page's JavaScript can be spotted by a determined script.
 
 1. **A VPN for the whole computer, not just the browser,** with IPv6 tunnelled too (`::/0` next to `0.0.0.0/0`) and its kill switch on (WireGuard: **Block untunneled traffic**).
 2. **Alibi Companion keeping Windows on your VPN's time zone, and Windows' Set time zone automatically off** (the tray menu opens the setting for you). Windows then carries the exit's zone while the VPN is up, so with Match my IP address Alibi leaves the zone to Windows instead of faking it, and the tray turns red if DNS or IPv6 goes around the VPN (or, with your countries set, if the VPN drops).
-3. **Alibi on Match my IP address, in Deep mode.** Deep mode gives the cover through Chrome itself, below the page. To hide its banner, start Chrome with `--silent-debugger-extension-api` (see [Modes](#modes)).
+3. **Alibi on Match my IP address, in Deep mode, with WebRTC Sealed.** Deep mode gives the cover through Chrome itself, below the page. To hide its banner, start Chrome with `--silent-debugger-extension-api` (see [Modes](#modes)). Sealed WebRTC keeps calls on the VPN too (see [WebRTC](#webrtc)).
 4. **Check it** on the [check page](https://doxigo.github.io/alibi/): every row should agree.
 
 On a Mac it's the same, with Whereabouts in the companion's place, with **Match my Mac's time zone and region** on.
@@ -125,7 +126,7 @@ Some things can't be hidden. Sites can often tell that an IP address belongs to 
 
 ## Modes
 
-**Stealth Mode (default).** On every navigation, Alibi injects a script into each frame's page context. The script patches `Intl`, `Date`, `toLocaleString` and `navigator.geolocation`. No debugger is involved, so Chrome shows no banner. Limits:
+**Stealth Mode (default).** On every navigation, Alibi injects a script into each frame's page context. The script patches `Intl`, `Date`, `toLocaleString`, `navigator.language(s)` and `navigator.geolocation`. A page that asks for the default locale with an empty list, as in `toLocaleTimeString([], …)`, gets the cover's locale too. No debugger is involved, so Chrome shows no banner. Limits:
 
 - New iframes and blob Web Workers get the cover too. Workers started from the site's own files still see the real time zone. Covering them means restarting them from a blob, and on sites whose security policy forbids blob workers that fails silently, breaking the site. Third-party scripts, where fingerprinting usually comes from, can't start file workers (a worker's script must come from the page's own site), so they're limited to blob workers, which are covered. On sites that require Trusted Types for scripts, such as Google Meet, or that turn off synchronous requests, such as Cloudflare's dashboard, blob workers start as they are too, because covering them would be refused and reported to the site. Deep covers file workers and those blob workers too.
 - An empty iframe reached through `window.frames[n]` before anything touches its `contentWindow` is still unpatched.
@@ -138,7 +139,7 @@ For Stealth Mode to also catch scripts that run the instant a page loads, open `
 
 ## Per-site covers
 
-The popup has two tabs. **All sites** holds your usual cover. The second tab is named after the current site: choose **Give it its own cover** and that site, along with its subdomains, gets separate settings. The most specific rule wins, and iframes follow the page they're embedded in. To keep one site on your real location, give it its own cover and set it to **Off (real location)**. Stealth/Deep mode applies to all sites.
+The popup has two tabs. **All sites** holds your usual cover. The second tab is named after the current site: choose **Give it its own cover** and that site, along with its subdomains, gets separate settings. The most specific rule wins, and iframes follow the page they're embedded in. To keep one site on your real location, give it its own cover and set it to **Off (real location)**. Stealth/Deep mode and WebRTC apply to all sites.
 
 ## IP Address
 
@@ -156,11 +157,23 @@ On Windows and Linux, [Alibi Companion](#alibi-companion-windows-and-linux) take
 
 When Whereabouts also moves the Mac's time zone to the exit, open pages follow the new time zone without a reload: while the Mac's zone already matches the IP, Alibi leaves the zone to Chrome, which passes the Mac's zone changes into pages that are already open. Their language, locale and location still change on reload.
 
+## WebRTC
+
+WebRTC, which sites use for calls, asks a STUN server over UDP which IP address it sees, and the page can read the answer. UDP doesn't go through a browser proxy, and with a VPN that doesn't carry every route (split tunnelling, or IPv6 left out), that answer can be your real IP address, whatever cover Alibi gives the page.
+
+The popup's **WebRTC** switch closes that. **Sealed** sets Chrome's WebRTC IP handling policy (`chrome.privacy.network.webRTCIPHandlingPolicy`) to `disable_non_proxied_udp`. WebRTC then goes through your proxy only, or with no proxy over TCP alone, which a VPN carries, and asks no STUN server for your address. It's one setting for the whole browser, so it holds for every site in both modes, and it reaches pages that are already open without a reload. **Open**, the default, leaves the setting to Chrome.
+
+Sealed has a cost. Calls connect through a TCP relay instead of directly, which can add some delay, and a site that offers no TCP relay can't connect a call at all. If another extension or a policy holds the setting, the popup says so and the switch changes nothing (between extensions, Chrome lets the most recently installed one win).
+
+The [check page](https://doxigo.github.io/alibi/) shows the public address WebRTC gives a page next to the one its requests come from. Sealed, it shows none, and so does a public test such as [BrowserLeaks](https://browserleaks.com/webrtc).
+
 ## Permission Justification
 
 **scripting, host permissions (all sites):** Stealth Mode needs these to inject its spoofing script into pages.
 
 **declarativeNetRequestWithHostAccess:** Sets the `Accept-Language` request header to match each site's cover.
+
+**privacy:** Only while WebRTC is Sealed: sets Chrome's WebRTC IP handling policy, so WebRTC can't show sites your IP address around your VPN or proxy. Alibi touches no other privacy setting.
 
 **userScripts:** Lets Stealth Mode run before page scripts once you turn on "Allow User Scripts". Note: the Chrome Web Store limits this API to user-script managers, so a store build may need to drop it and rely on the injection fallback.
 
