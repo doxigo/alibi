@@ -396,6 +396,8 @@ $('#ipRetry').addEventListener('click', () => {
   configurationSelect.value = 'ipAddress'
   handleConfigurationChange()
 })
+// Fields save as they're typed; a submit would only reload the popup. (Extension pages refuse inline handlers.)
+coverFields.addEventListener('submit', (event) => event.preventDefault())
 configurationSelect.addEventListener('change', handleConfigurationChange)
 timeZoneInput.addEventListener('input', handleInputChange)
 localeInput.addEventListener('input', handleInputChange)
