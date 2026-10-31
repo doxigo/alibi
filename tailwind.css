@@ -188,7 +188,7 @@
     @apply text-airmail;
   }
 
-  /* Stealth | Deep, Open | Sealed: two hard halves of one switch, split by an ink line; the red fill flips across.
+  /* Stealth | Deep: two hard halves of one switch, split by an ink line; the red fill flips across.
      Inside the 1.5px border the corners are 2.5px, which the fill and the hover wash keep. */
   .halves {
     @apply relative grid grid-cols-2;
@@ -246,6 +246,152 @@
   .halves .half-title {
     font-size: 13.5px;
     font-weight: 700;
+  }
+
+  /* The WebRTC line: a secondary setting, set like the tick boxes on a customs form. The checked box
+     takes a hand-inked cross, never the red fill, which stays the Mode switch's alone. */
+  .tick-boxes {
+    @apply flex items-center;
+    gap: 14px;
+  }
+  .tick-option {
+    position: relative;
+  }
+  .tick-option label {
+    @apply flex cursor-pointer items-center text-ink2;
+    gap: 6px;
+    font-size: 12.5px;
+    font-weight: 600;
+    border-radius: 2px;
+    transition: color 140ms ease-out;
+  }
+  .tick-option label:hover,
+  .tick-option label:has(input:checked) {
+    @apply text-ink;
+  }
+  .tick-option label:has(input:focus-visible) {
+    outline: 2px solid rgb(var(--red));
+    outline-offset: 3px;
+  }
+  .tick-option label:has(input:disabled) {
+    @apply cursor-not-allowed text-ink3;
+  }
+  .tick-box {
+    position: relative;
+    width: 13px;
+    height: 13px;
+    border: 1.5px solid currentColor;
+    border-radius: 2px;
+    transition: background-color 140ms ease-out;
+  }
+  .tick-option label:hover .tick-box {
+    background: rgb(var(--ink) / 0.06);
+  }
+  /* The cross runs a little past the box, the way a pen marks a form, and is pressed in like the die. */
+  .tick-box svg {
+    position: absolute;
+    inset: -4px;
+    overflow: visible;
+    filter: url(#bleed);
+  }
+  .tick-box path {
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.7;
+    stroke-linecap: round;
+    stroke-dasharray: 22;
+    stroke-dashoffset: 22;
+  }
+  .tick-option label:has(input:checked) .tick-box path {
+    stroke-dashoffset: 0;
+  }
+
+  /* The envelope beside the label shuts its flap, under a dot of printed-red wax, while WebRTC is sealed. */
+  .envelope {
+    @apply text-ink2;
+    overflow: visible;
+  }
+  .envelope-flap {
+    transform-box: view-box;
+    transform-origin: 10px 7px;
+  }
+  .envelope-seal {
+    fill: rgb(var(--red-fill));
+    transform-box: fill-box;
+    transform-origin: center;
+    transform: scale(0);
+  }
+  .webrtc-line:has(input[value='sealed']:checked) .envelope {
+    @apply text-ink;
+  }
+  .webrtc-line:has(input[value='sealed']:checked) .envelope-flap {
+    transform: scaleY(-1);
+  }
+  .webrtc-line:has(input[value='sealed']:checked) .envelope-seal {
+    transform: scale(1);
+  }
+
+  /* Motion only once the popup has drawn its saved state (popup.js adds .settled), so opening it is still. */
+  @media (prefers-reduced-motion: no-preference) {
+    .settled .tick-option label:has(input:checked) .tick-box path {
+      transition: stroke-dashoffset 130ms cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    .settled .tick-option label:has(input:checked) .tick-box path + path {
+      transition-delay: 90ms;
+    }
+    .settled .envelope-flap {
+      transition: transform 260ms cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    .settled .webrtc-line:has(input[value='sealed']:checked) .envelope-seal {
+      transition: transform 180ms cubic-bezier(0.16, 1, 0.3, 1) 200ms;
+    }
+  }
+
+  /* A slip of ink over a tick box saying what that choice does: after a beat on hover, at once on keyboard
+     focus. It is inked, not lifted, so it needs no shadow to stand off the page. */
+  .helper-slip,
+  .tick-option::after {
+    position: absolute;
+    z-index: 10;
+    pointer-events: none;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 120ms ease-out, visibility 0s linear 120ms;
+  }
+  .helper-slip {
+    right: -2px;
+    bottom: calc(100% + 10px);
+    width: 228px;
+    padding: 7px 10px 8px;
+    border-radius: 2px;
+    background: rgb(var(--ink));
+    color: rgb(var(--paper));
+    font-size: 12px;
+    font-weight: 500;
+    line-height: 1.45;
+    text-wrap: pretty;
+  }
+  /* Its notch, pointing down at the box. */
+  .tick-option::after {
+    content: '';
+    left: 50%;
+    bottom: calc(100% + 4px);
+    translate: -50% 0;
+    border-style: solid;
+    border-width: 6px 5px 0;
+    border-color: rgb(var(--ink)) transparent transparent;
+  }
+  .tick-option:has(label:hover) .helper-slip,
+  .tick-option:has(label:hover)::after {
+    opacity: 1;
+    visibility: visible;
+    transition: opacity 140ms ease-out 350ms, visibility 0s linear 350ms;
+  }
+  .tick-option:has(input:focus-visible) .helper-slip,
+  .tick-option:has(input:focus-visible)::after {
+    opacity: 1;
+    visibility: visible;
+    transition: opacity 140ms ease-out;
   }
 
   /* A gummed postal label with a perforated top edge. */

@@ -138,6 +138,17 @@ components:
   switch-halves-active:
     backgroundColor: "{colors.red-fill}"
     textColor: "{colors.print-white}"
+  tick-box:
+    textColor: "{colors.ink-2}"
+    rounded: "{rounded.label}"
+    size: "13px"
+  tick-box-checked:
+    textColor: "{colors.ink}"
+  helper-slip:
+    backgroundColor: "{colors.ink}"
+    textColor: "{colors.paper}"
+    rounded: "{rounded.label}"
+    padding: "7px 10px 8px"
   postal-label:
     backgroundColor: "{colors.label}"
     textColor: "{colors.print-white}"
@@ -176,7 +187,7 @@ Two inks on envelope stock, plus the printed airmail red and blue. Everything is
 
 ### Primary
 - **Airmail Red** (`airmail-red`, light): red text and every focus ring. It is the caret colour in fields, the focused or invalid underline of an address line, error copy, the selection tint (at 22% alpha), and the step numerals on the guide.
-- **Printed Airmail Red** (`red-fill`): filled active states only. The active half of the Stealth | Deep switch, the scope-tab underline, and the reload button when a change is waiting. It holds the same value in both schemes because it is a printed ink, not a theme colour.
+- **Printed Airmail Red** (`red-fill`): filled active states only. The active half of the Stealth | Deep switch, the scope-tab underline, the reload button when a change is waiting, and the dot of wax on the WebRTC envelope while it's sealed. It holds the same value in both schemes because it is a printed ink, not a theme colour.
 
 ### Secondary
 - **Airmail Blue** (`airmail-blue`): links in running text on the guide.
@@ -230,11 +241,11 @@ Two inks on envelope stock, plus the printed airmail red and blue. Everything is
 
 ## Layout
 
-The popup is a fixed 400px column with a 20px gutter. From top to bottom: the 6px chevron edge, a header row (mark and wordmark on the left, quiet actions on the right), the strike, scope tabs, the address block, and the mode row. Fields stack at 12px. Time zone, locale, latitude and longitude sit in a two-column grid with 20px between the columns. The strike puts the 128px die on the left. Wavy cancel lines run from its shoulder to the right edge, and the lead, place and meta lines sit in a band below the lines, not over them.
+The popup is a fixed 400px column with a 20px gutter. From top to bottom: the 6px chevron edge, a header row (mark and wordmark on the left, quiet actions on the right), the strike, scope tabs, the address block, the mode row, and the WebRTC line under it. Fields stack at 12px. Time zone, locale, latitude and longitude sit in a two-column grid with 20px between the columns. The strike puts the 128px die on the left. Wavy cancel lines run from its shoulder to the right edge, and the lead, place and meta lines sit in a band below the lines, not over them.
 
 The guide is a centred 680px column with 24px side padding and a 10px chevron edge at top and bottom. Its opening pairs a 168px die (tilted −6°) with the display headline in an auto/1fr grid that stacks into one column below 560px. Prose is capped at about 70 characters.
 
-**The 600px Rule.** Chrome caps a popup at 600px tall, so the popup's tallest state, the User Scripts label plus a field error, must fit in 600px without scrolling. This is why the die is 128px and not larger. Check every addition against that state.
+**The 600px Rule.** Chrome caps a popup at 600px tall, so the popup's tallest state, Stealth with the User Scripts label showing, must fit in 600px without scrolling. It measures 597px. This is why the die is 128px and not larger, and why WebRTC is one line under the mode row rather than a second switch row of its own (that cost 43px and made the popup scroll). Check every addition against that state.
 
 **The One Notice Rule.** The popup shows at most one notice at a time. An error (a field error or a failed IP lookup) outranks the User Scripts label, which comes back once the error clears. Never stack a label on top of an error.
 
@@ -272,7 +283,15 @@ Stamped, not glossy. Ink outlines and plain type, with red only when something i
 - **Disabled:** pale ink with a not-allowed cursor.
 
 ### Stealth | Deep switch
-Two hard halves of one 1.5px ink-bordered box, split by a 1.5px ink line, 4px corner. A printed-red fill sits behind the checked half and slides across in 260ms (`cubic-bezier(0.16, 1, 0.3, 1)`). The checked half's text turns white. Each half is a label wrapping a visually hidden radio, so the arrow keys work, and focus draws a red outline at a 3px offset. It pads 6px by 14px with 13.5px/700 titles centred in equal halves, sized for the popup's mode row. The split line sits on the seam above the fill, and the fill keeps the box's 2.5px inner corners, so both states mirror each other. The unchecked half takes the ink button's 6% ink wash on hover. On the guide, the two-mode panel reuses the bordered halves statically, with no fill. The popup's WebRTC row (Open | Sealed) is the same switch, under its own rule line below the mode row.
+Two hard halves of one 1.5px ink-bordered box, split by a 1.5px ink line, 4px corner. A printed-red fill sits behind the checked half and slides across in 260ms (`cubic-bezier(0.16, 1, 0.3, 1)`). The checked half's text turns white. Each half is a label wrapping a visually hidden radio, so the arrow keys work, and focus draws a red outline at a 3px offset. It pads 6px by 14px with 13.5px/700 titles centred in equal halves, sized for the popup's mode row. The split line sits on the seam above the fill, and the fill keeps the box's 2.5px inner corners, so both states mirror each other. The unchecked half takes the ink button's 6% ink wash on hover. On the guide, the two-mode panel reuses the bordered halves statically, with no fill. It is the popup's one stamped switch: the WebRTC setting below it deliberately uses tick boxes instead.
+
+### WebRTC line
+A secondary setting, so it is set as one line of a postal form, not a second stamped switch. It sits 10px under the mode row (or under the User Scripts label), with no rule of its own, and ends the popup.
+- **Lead:** a 16px stroked envelope (1.7 stroke, faded ink), "WebRTC" at 12.5px/700 in ink, a pale-ink middle dot, and one meta-size note in faded ink that states the current choice as a fact ("Can bypass a proxy." / "Shows no public IP."). The note truncates rather than push the boxes off the edge.
+- **Envelope:** open, its flap stands above the body over the front's V, like a mail-open glyph. Sealed, the flap folds down onto the V (260ms, `cubic-bezier(0.16, 1, 0.3, 1)`) and a 1.9-unit dot of printed-red wax lands on its point 200ms later. The envelope steps up to ink.
+- **Tick boxes:** two options, Open and Sealed, each a label wrapping a visually hidden radio. The box is 13px square with a 1.5px border in the label's colour and a 2px corner, 6px from its 12.5px/600 word, with 14px between the options. Unchecked is faded ink, checked is ink. The checked box takes a hand-inked cross that runs a little past the box, drawn stroke by stroke (130ms each, the second 90ms later) and run through the die's bleed filter. Hover takes the 6% ink wash and ink text. Keyboard focus draws the red outline at a 3px offset. Disabled (another extension or a policy holds Chrome's setting, and the note says which) drops to pale ink with a not-allowed cursor. Red never fills a box: a red fill is the Mode switch's alone.
+- **Helper slip:** each box has one, wired as its `aria-describedby`. It is a 228px slip of solid ink with paper text (12px/500, 1.45), a 2px corner, 7px by 10px padding and a 6px notch pointing down at its box, right-aligned 10px above it. It is inked, not lifted, so it needs no shadow. It fades in after 350ms of hover and at once on keyboard focus, and never takes the pointer.
+- **Motion gate:** the saved state is drawn still. Motion only runs once the popup adds `.settled`, two frames after its first render, and only under `prefers-reduced-motion: no-preference`.
 
 ### Postal label
 A gummed label with a perforated top edge (a radial-gradient mask of 2.6px holes every 10px). It has a label-blue ground, white meta text at 1.45 line height, a 2px corner, and 9px by 14px padding. Its inline action is a semibold, underlined button. It is the popup's only advisory surface, and it obeys the One Notice Rule.

@@ -279,12 +279,15 @@ const updateHint = () => {
 
 // --- WebRTC ----------------------------------------------------------------------------------
 
-// Chrome's WebRTC setting has one holder. Another extension or a policy may have it, and then the switch changes nothing.
+// Chrome's WebRTC setting has one holder. Another extension or a policy may have it, and then the boxes
+// could change nothing, so they're disabled and the note says who holds it.
 const webRtcControl = chrome.privacy.network.webRTCIPHandlingPolicy.get({}).then((setting) => setting.levelOfControl)
 const renderWebRtc = async () => {
-  const elsewhere = !(await webRtcControl).endsWith('_by_this_extension')
-  webRtcNote.textContent = elsewhere ? 'Another extension or a policy decides this.'
-    : sealedInput.checked ? 'Only via your VPN or proxy.' : 'Can show sites your real IP.'
+  const control = await webRtcControl
+  openInput.disabled = sealedInput.disabled = !control.endsWith('_by_this_extension')
+  webRtcNote.textContent = control === 'not_controllable' ? 'Set by a policy.'
+    : control === 'controlled_by_other_extensions' ? 'Set by an extension.'
+    : sealedInput.checked ? 'Shows no public IP.' : 'Can bypass a proxy.'
 }
 
 // --- Saving ----------------------------------------------------------------------------------
@@ -459,6 +462,8 @@ renderScope()
 renderMode()
 renderWebRtc()
 renderStrike()
+// The saved state is drawn without motion; only changes made from here on animate (tailwind.css).
+requestAnimationFrame(() => requestAnimationFrame(() => document.body.classList.add('settled')))
 setInterval(updateClock, 1000)
 // The companion says it holds the system's clock a moment after a change: show it when it does.
 chrome.storage.onChanged.addListener(({ systemZone }) => {

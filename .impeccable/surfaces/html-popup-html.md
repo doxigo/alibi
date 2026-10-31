@@ -33,6 +33,7 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
 - The lead, place and meta line sit in a band below the cancel lines rather than over them. At 400px, wavy lines behind the 28px place name cut its contrast, and legibility outranks the overlay.
 - Per-site scope tabs (All sites, or the current host) sit between the strike and the address block. The user asked for per-site settings mid-build.
 - Dark scheme: filled active states use printed airmail red #c41e2a with white text. The lighter red is reserved for red text and focus rings, where navy needs the extra contrast.
+- WebRTC (Open | Sealed, asked for after the build) is one line of customs-form tick boxes under the mode row, with an envelope that seals and an ink helper slip per box. A second stamped switch row read as a second Mode and pushed the tallest state to 640px. The line keeps it at 597px.
 
 ## Unresolved
 

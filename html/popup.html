@@ -159,7 +159,7 @@
     </form>
     </div>
 
-    <fieldset class="mx-5 mt-3 border-t border-rule pb-4 pt-3">
+    <fieldset class="mx-5 mt-3 border-t border-rule pt-3">
       <legend class="sr-only">Mode, for all sites</legend>
       <div class="flex items-center justify-between gap-4">
         <div class="min-w-0">
@@ -183,22 +183,41 @@
       </p>
     </fieldset>
 
-    <fieldset class="mx-5 border-t border-rule pb-4 pt-3">
+    <!-- A secondary setting, so it's a line on the form with two tick boxes, not a second stamped switch. -->
+    <fieldset id="webRtcRow" class="webrtc-line mx-5 mt-2.5 pb-3">
       <legend class="sr-only">WebRTC, for all sites</legend>
-      <div class="flex items-center justify-between gap-4">
-        <div class="min-w-0">
-          <p class="text-[13.5px] font-bold" aria-hidden="true">WebRTC <span class="font-medium text-ink3">· all sites</span></p>
-          <p id="webRtcNote" class="text-[12.5px] text-ink2"></p>
-        </div>
-        <div class="halves shrink-0">
-          <label>
-            <input type="radio" name="webRtc" value="open" class="sr-only">
-            <span class="half-title">Open</span>
-          </label>
-          <label>
-            <input type="radio" name="webRtc" value="sealed" class="sr-only">
-            <span class="half-title">Sealed</span>
-          </label>
+      <div class="flex items-center justify-between gap-3">
+        <p class="flex min-w-0 items-center gap-1.5 text-[12.5px]">
+          <svg class="envelope shrink-0" width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor"
+            stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <rect x="2.5" y="7" width="15" height="10" rx="1" />
+            <path d="M2.5 7 10 12l7.5-5" />
+            <path class="envelope-flap" d="M2.5 7 10 2l7.5 5" />
+            <circle class="envelope-seal" cx="10" cy="12" r="1.9" stroke="none" />
+          </svg>
+          <span class="font-bold text-ink" aria-hidden="true">WebRTC</span>
+          <span class="text-ink3" aria-hidden="true">·</span>
+          <span id="webRtcNote" class="min-w-0 truncate font-medium text-ink2"></span>
+        </p>
+        <div class="tick-boxes shrink-0">
+          <div class="tick-option">
+            <label>
+              <input type="radio" name="webRtc" value="open" class="sr-only" aria-describedby="webRtcOpenTip">
+              <span class="tick-box" aria-hidden="true"><svg viewBox="0 0 18 18"><path d="M1.8 2.3 16.1 15.7" /><path d="M16.2 1.9 2 16.1" /></svg></span>
+              Open
+            </label>
+            <span id="webRtcOpenTip" class="helper-slip" role="tooltip">Chrome’s default. On a VPN that carries
+              everything, sites see only the VPN’s IP. A proxy or split tunnel can let WebRTC show your real one.</span>
+          </div>
+          <div class="tick-option">
+            <label>
+              <input type="radio" name="webRtc" value="sealed" class="sr-only" aria-describedby="webRtcSealedTip">
+              <span class="tick-box" aria-hidden="true"><svg viewBox="0 0 18 18"><path d="M1.8 2.3 16.1 15.7" /><path d="M16.2 1.9 2 16.1" /></svg></span>
+              Sealed
+            </label>
+            <span id="webRtcSealedTip" class="helper-slip" role="tooltip">WebRTC stops asking servers for your IP, on
+              every site. Calls go through a relay, so they may take a moment longer to connect.</span>
+          </div>
         </div>
       </div>
     </fieldset>

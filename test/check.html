@@ -331,6 +331,13 @@
       <span class="not-mac">Set your computer’s time zone to your VPN’s and these rows follow it. On Windows they can
         still name another city with the same offset, since one Windows zone covers several.</span>
     </p>
+    <p class="os-tip" id="workerTip" hidden>
+      <strong>In Stealth mode, workers a site starts from its own files keep your browser’s own language.</strong>
+      Covering them means restarting them from a blob, which breaks sites that forbid blob workers, so Alibi leaves them
+      as they are. Unlike the time zone, no system setting moves it, because Chrome takes it from its own interface
+      language. Scripts from other sites, where fingerprinting usually comes from, can only start blob workers, and those
+      match. Deep mode covers these rows too.
+    </p>
 
     <h2>Location</h2>
     <button id="locate" type="button">Ask for my location</button>
@@ -346,7 +353,8 @@
         normal network delay: <a href="?delay=150">?delay=150</a>.</li>
       <li>Give <code id="hostName">this site</code> its own cover in the popup. The iframes should follow this page, not
         their own address.</li>
-      <li><strong>Stealth:</strong> the two workers started from this site’s own files show your real zone; third-party
+      <li><strong>Stealth:</strong> the two workers started from this site’s own files show your real zone and language
+        (the zone matches once your system is on the cover’s); third-party
         scripts can only start blob workers, which match. With “Allow User Scripts” off, the iframes and first inline
         script can show it too. <strong>Deep:</strong> every row should match.</li>
       <li>Set <strong>WebRTC</strong> to <strong>Sealed</strong> in the popup and reload: the WebRTC row should show no
@@ -472,6 +480,8 @@
       const leaks = answered.filter((s) => s.value.zone !== reference.zone || s.value.offset !== reference.offset || s.value.locale !== reference.locale || s.earlyZone || (s.value.loads && s.value.loads !== 'ok'))
       // Only the OS can fix the time zone of a site's own workers and of instant first scripts.
       document.getElementById('osTip').hidden = !leaks.some((s) => ['early', 'fileWorker', 'moduleWorker'].includes(s.id) && s.value.zone !== reference.zone)
+      // Their language isn't the OS's to fix: only Deep mode reaches it.
+      document.getElementById('workerTip').hidden = !leaks.some((s) => ['fileWorker', 'moduleWorker'].includes(s.id) && s.value.locale !== reference.locale)
       const verdict = document.getElementById('verdict')
       const detail = document.getElementById('verdictDetail')
       const story = `${reference.zone} (${formatOffset(reference.offset)}, ${reference.locale})`
