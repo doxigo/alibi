@@ -339,6 +339,12 @@
       match. Deep mode covers these rows too.
     </p>
 
+    <h2>Your IP address</h2>
+    <dl id="ip">
+      <dt>IP address</dt>
+      <dd class="pending">Checking…</dd>
+    </dl>
+
     <h2>Location</h2>
     <button id="locate" type="button">Ask for my location</button>
     <p id="location" aria-live="polite">Not asked yet. Your browser will ask for permission first.</p>
@@ -357,6 +363,8 @@
         (the zone matches once your system is on the cover’s); third-party
         scripts can only start blob workers, which match. With “Allow User Scripts” off, the iframes and first inline
         script can show it too. <strong>Deep:</strong> every row should match.</li>
+      <li>Choose <strong>Match my IP address</strong> in the popup and reload: the time zone and language under Your IP
+        address should match, and your location should be close to it.</li>
       <li>Set <strong>WebRTC</strong> to <strong>Sealed</strong> in the popup and reload: the WebRTC row should show no
         address. A public leak test such as <a href="https://browserleaks.com/webrtc">BrowserLeaks</a> should find
         none either.</li>
@@ -493,9 +501,18 @@
         // A source that can't run here (blocked, or local-only) counts as settled, not as agreeing.
         const settled = sources.every((s) => s.value || s.error)
         const every = answered.length === sources.length ? 'every source' : 'every source that answered'
+        // One story can still be the wrong one: the IP address tells its own.
+        const ipZone = ipPlace && zoneVsIp(ipPlace)
+        if (settled && ipZone === 'differs') {
+          verdict.dataset.state = 'leak'
+          verdict.textContent = `Every source says ${reference.zone}, but your IP address is in ${regionName(ipPlace.country_code)}`
+          detail.textContent = `Your IP address is on ${ipPlace.timezone} (${intlOffset(ipPlace.timezone)}), and a site can compare the two. Choose Match my IP address in Alibi’s popup.`
+          return
+        }
         verdict.dataset.state = settled ? 'ok' : 'pending'
         verdict.textContent = settled ? `One story: ${every} says ${reference.zone}` : 'Checking every source…'
-        detail.textContent = settled ? `${formatOffset(reference.offset)} · ${reference.locale}. If that’s your cover, Alibi is holding up here.` : ''
+        const ending = ipZone ? `Your IP address is in ${regionName(ipPlace.country_code)} too, so Alibi is holding up here.` : 'If that’s your cover, Alibi is holding up here.'
+        detail.textContent = settled ? `${formatOffset(reference.offset)} · ${reference.locale}. ${ending}` : ''
       }
     }
 
@@ -542,6 +559,46 @@
       () => (document.getElementById('acceptLanguage').textContent = 'Couldn’t reach httpbin.org to check'),
     )
 
+    // Where this page's requests come from, by the same lookup as Alibi's Match my IP address, so the two agree.
+    let ipPlace = null
+    const ipLookup = fetch('https://get.geojs.io/v1/ip/geo.json').then((r) => r.json())
+    const canonical = (zone) => {
+      try {
+        return new Intl.DateTimeFormat('en-US', { timeZone: zone }).resolvedOptions().timeZone
+      } catch {
+        return zone
+      }
+    }
+    const regionName = (code) => {
+      try {
+        return new Intl.DisplayNames(['en'], { type: 'region' }).of(code)
+      } catch {
+        return code
+      }
+    }
+    // A site comparing zones usually compares offsets, so another city on the same offset passes, if barely.
+    const zoneVsIp = (ip) => (canonical(ip.timezone) === canonical(page.zone) ? 'same' : intlOffset(ip.timezone) === dateOffset ? 'offset' : 'differs')
+    const showIp = (rows) => (document.getElementById('ip').innerHTML = rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join(''))
+    ipLookup.then((ip) => {
+      ipPlace = ip
+      const country = esc(regionName(ip.country_code))
+      const zone = zoneVsIp(ip)
+      let region = null
+      try {
+        region = new Intl.Locale(page.locale).maximize().region
+      } catch {}
+      showIp([
+        ['IP address', `<strong>${esc(ip.ip)}</strong>${ip.organization_name ? ` · ${esc(ip.organization_name)}` : ''}`],
+        ['Where it is', esc([ip.city, ip.region, regionName(ip.country_code)].filter(Boolean).join(', '))],
+        ['Time zone', zone === 'same' ? `<strong>Same</strong> as this page, ${esc(ip.timezone)}`
+          : zone === 'offset' ? `<strong>Same offset</strong> ${dateOffset}, though this page says ${esc(page.zone)} and the IP ${esc(ip.timezone)}`
+          : `<strong class="flag">Differs</strong> this page says ${esc(page.zone)} (${dateOffset}), the IP ${esc(ip.timezone)} (${intlOffset(ip.timezone)})`],
+        ['Language', region === ip.country_code ? `<strong>Fits</strong> ${esc(page.locale)} points to ${country}, like the IP`
+          : `<strong class="flag">Differs</strong> ${esc(page.locale)} points to ${esc(region ? regionName(region) : 'no country')}, the IP is in ${country}`],
+      ])
+      render()
+    }, () => showIp([['IP address', 'Couldn’t reach GeoJS to check']]))
+
     // WebRTC asks a STUN server (Google's public one, as many sites do) which address it sees. Next to
     // the address this page's requests come from, a second one is a VPN or proxy that WebRTC went around.
     const webRtcAddresses = async () => {
@@ -582,11 +639,22 @@
       showWebRtc(`${list}, with no request address of the same IP version to compare (ipify.org)${local}`)
     }, (error) => showWebRtc(`Couldn’t check: ${esc(error.message)}`))
 
+    // Great-circle distance in km.
+    const km = (aLat, aLon, bLat, bLon) => {
+      const rad = Math.PI / 180
+      const h = Math.sin(((bLat - aLat) * rad) / 2) ** 2 + Math.cos(aLat * rad) * Math.cos(bLat * rad) * Math.sin(((bLon - aLon) * rad) / 2) ** 2
+      return 12742 * Math.asin(Math.sqrt(h))
+    }
     document.getElementById('locate').addEventListener('click', () => {
       const out = document.getElementById('location')
       out.textContent = 'Asking…'
       navigator.geolocation.getCurrentPosition(
-        ({ coords }) => (out.textContent = `${coords.latitude.toFixed(4)}, ${coords.longitude.toFixed(4)} · accuracy ${Math.round(coords.accuracy)} m`),
+        ({ coords }) => {
+          const d = ipPlace && Math.round(km(coords.latitude, coords.longitude, Number(ipPlace.latitude), Number(ipPlace.longitude)))
+          // ponytail: 300 km flags another region; IP databases place an address by city at best.
+          const far = d == null ? '' : ` · ${d > 300 ? '<strong class="flag">Far</strong> ' : ''}${d.toLocaleString()} km from where your IP address is`
+          out.innerHTML = `${coords.latitude.toFixed(4)}, ${coords.longitude.toFixed(4)} · accuracy ${Math.round(coords.accuracy)} m${far}`
+        },
         (error) => (out.textContent = error.code === 1 ? 'Permission denied. Allow location for this site and try again.' : `No position: ${error.message}`),
         { timeout: 10000 },
       )

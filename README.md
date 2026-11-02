@@ -118,7 +118,7 @@ Anything that changes a page's JavaScript can be spotted by a determined script.
 1. **A VPN for the whole computer, not just the browser,** with IPv6 tunnelled too (`::/0` next to `0.0.0.0/0`) and its kill switch on (WireGuard: **Block untunneled traffic**).
 2. **Alibi Companion keeping Windows on your VPN's time zone, and Windows' Set time zone automatically off** (the tray menu opens the setting for you). Windows then carries the exit's zone while the VPN is up, so with Match my IP address Alibi leaves the zone to Windows instead of faking it, and the tray turns red if DNS or IPv6 goes around the VPN (or, with your countries set, if the VPN drops).
 3. **Alibi on Match my IP address, in Deep mode, with WebRTC Sealed.** Deep mode gives the cover through Chrome itself, below the page. To hide its banner, start Chrome with `--silent-debugger-extension-api` (see [Modes](#modes)). Sealed WebRTC keeps calls on the VPN too (see [WebRTC](#webrtc)).
-4. **Check it** on the [check page](https://doxigo.github.io/alibi/): every row should agree.
+4. **Check it** on the [check page](https://doxigo.github.io/alibi/): every row should agree, and the time zone and language under Your IP address should match where your IP is.
 
 On a Mac it's the same, with Whereabouts in the companion's place, with **Match my Mac's time zone and region** on.
 
