@@ -20,6 +20,8 @@ const coverPanel = $('#coverPanel')
 const coverFields = $('#coverFields')
 const siteEmpty = $('#siteEmpty')
 const removeSiteRuleButton = $('#removeSiteRule')
+const modeRow = $('#modeRow')
+const webRtcRow = $('#webRtcRow')
 const stealthInput = $('input[name="mode"][value="stealth"]')
 const deepInput = $('input[name="mode"][value="deep"]')
 const modeNote = $('#modeNote')
@@ -103,6 +105,9 @@ let scope = 'all' // or 'site'
 let ruleKey = siteKey(activeTab?.url ?? '') // null when the tab isn't a website
 
 const siteRule = () => (ruleKey ? stored.sites?.[ruleKey] : undefined)
+
+// The storage change that sets `changes` on the record being edited: All sites, or this site's rule.
+const edit = (changes) => (scope === 'site' ? { sites: { ...stored.sites, [ruleKey]: { ...siteRule(), ...changes } } } : changes)
 
 // "52,52" and "52.52" both mean 52.52; anything else is NaN. Empty is null.
 const parseCoordinate = (value) => {
@@ -253,14 +258,22 @@ const renderScope = () => {
   siteEmpty.hidden = !empty
   coverFields.hidden = empty
   removeSiteRuleButton.hidden = scope !== 'site' || empty
+  // A site on the All sites cover has no Mode or WebRTC of its own either.
+  modeRow.hidden = webRtcRow.hidden = empty
+  for (const name of document.querySelectorAll('[data-scope-name]')) name.textContent = scope === 'site' ? ruleKey : 'all sites'
   $('#siteEmptyName').textContent = ruleKey ?? ''
 }
 
 const selectScope = (next) => {
   scope = next
   writeFields(scope === 'site' ? siteRule() : stored)
+  const record = scope === 'site' && siteRule() ? coverFor(ruleKey, stored) : stored
+  ;(record.useDebuggerApi ? deepInput : stealthInput).checked = true
+  ;(stored.sealWebRtc || record.sealWebRtc ? sealedInput : openInput).checked = true
   validate()
   renderScope()
+  renderMode()
+  renderWebRtc()
   renderStrike()
 }
 
@@ -280,14 +293,17 @@ const updateHint = () => {
 // --- WebRTC ----------------------------------------------------------------------------------
 
 // Chrome's WebRTC setting has one holder. Another extension or a policy may have it, and then the boxes
-// could change nothing, so they're disabled and the note says who holds it.
+// could change nothing, so they're disabled and the note says who holds it. A site's own seal is in its
+// pages, so the holder doesn't matter to it, but while Chrome's seal is on a site has nothing to add.
 const webRtcControl = chrome.privacy.network.webRTCIPHandlingPolicy.get({}).then((setting) => setting.levelOfControl)
 const renderWebRtc = async () => {
   const control = await webRtcControl
-  openInput.disabled = sealedInput.disabled = !control.endsWith('_by_this_extension')
-  webRtcNote.textContent = control === 'not_controllable' ? 'Set by a policy.'
+  const held = scope === 'site' ? (stored.sealWebRtc ? 'Sealed for all sites.' : null)
+    : control === 'not_controllable' ? 'Set by a policy.'
     : control === 'controlled_by_other_extensions' ? 'Set by an extension.'
-    : sealedInput.checked ? 'Shows no public IP.' : 'Can bypass a proxy.'
+    : null
+  openInput.disabled = sealedInput.disabled = !!held
+  webRtcNote.textContent = held ?? (sealedInput.checked ? 'Shows no public IP.' : 'Can bypass a proxy.')
 }
 
 // --- Saving ----------------------------------------------------------------------------------
@@ -334,8 +350,7 @@ const saveToStorage = () => {
   renderStrike()
   // Keep the last good settings until a typo is fixed; a bad zone or locale would break pages.
   if (!validate()) return
-  if (scope === 'site') return persist({ sites: { ...stored.sites, [ruleKey]: readFields() } })
-  return persist(readFields())
+  return persist(edit(readFields()))
 }
 
 const handleConfigurationChange = async () => {
@@ -415,8 +430,9 @@ for (const tab of [scopeAllTab, scopeSiteTab]) {
   })
 }
 $('#addSiteRule').addEventListener('click', async () => {
-  const { configuration, timezone, locale, lat, lon } = stored
-  await persist({ sites: { ...stored.sites, [ruleKey]: { configuration, timezone, locale, lat, lon } } })
+  // Its own WebRTC seal starts off: it's one added to Chrome's, never taken from it.
+  const { configuration, timezone, locale, lat, lon, useDebuggerApi } = stored
+  await persist({ sites: { ...stored.sites, [ruleKey]: { configuration, timezone, locale, lat, lon, useDebuggerApi } } })
   selectScope('site')
   configurationSelect.focus()
 })
@@ -430,15 +446,18 @@ removeSiteRuleButton.addEventListener('click', async () => {
 for (const input of [stealthInput, deepInput]) {
   input.addEventListener('change', () => {
     renderMode()
-    persist({ useDebuggerApi: deepInput.checked })
+    persist(edit({ useDebuggerApi: deepInput.checked }))
   })
 }
 // No cover changes, so unlike persist() this leaves Deep mode's tabs attached. Open pages need no
-// reload either: Chrome applies the setting to the next connection they make.
+// reload for Chrome's seal: Chrome applies it to the next connection they make. A site's own is in its pages.
 for (const input of [openInput, sealedInput]) {
   input.addEventListener('change', () => {
+    const changes = edit({ sealWebRtc: sealedInput.checked })
+    Object.assign(stored, changes)
     renderWebRtc()
-    chrome.storage.local.set({ sealWebRtc: sealedInput.checked })
+    chrome.storage.local.set(changes)
+    if (scope === 'site') markPending(true)
   })
 }
 $('#userScriptsLink').addEventListener('click', () =>
@@ -456,14 +475,7 @@ if (matched) {
   ruleKey = matched
   scope = 'site'
 }
-;(stored.useDebuggerApi ? deepInput : stealthInput).checked = true
-;(stored.sealWebRtc ? sealedInput : openInput).checked = true
-writeFields(scope === 'site' ? siteRule() : stored)
-validate()
-renderScope()
-renderMode()
-renderWebRtc()
-renderStrike()
+selectScope(scope)
 // The saved state is drawn without motion; only changes made from here on animate (tailwind.css).
 requestAnimationFrame(() => requestAnimationFrame(() => document.body.classList.add('settled')))
 setInterval(updateClock, 1000)

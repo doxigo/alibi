@@ -29,7 +29,8 @@ export default function stealth(config) {
   // Zones compare as the browser names them: a system it calls Asia/Calcutta is on Asia/Kolkata.
   if (config.configuration === 'ipAddress' && timezone &&
     new Intl.DateTimeFormat('en-US', { timeZone: timezone }).resolvedOptions().timeZone === Intl.DateTimeFormat().resolvedOptions().timeZone) timezone = null
-  if (!(timezone || locale || lat || lon)) return // e.g. a site set to its real location
+  const covered = !!(timezone || locale || lat || lon)
+  if (!covered && !config.relay) return // e.g. a site set to its real location
   const cover = { timezone, locale, lat, lon }
   // The cover's locale wherever the browser would use its own: no locales at all, or an empty list,
   // as in toLocaleTimeString([], { hour: '2-digit' }). Anything else passes through, errors and all.
@@ -221,6 +222,30 @@ export default function stealth(config) {
       }
     }
 
+    // A site's own WebRTC seal, while Chrome's browser-wide one is off (background.js). Relay candidates
+    // only, through TCP or TLS relays, so neither the page nor its relay sees an address that went around
+    // a proxy over UDP. As with Chrome's seal, a site with no TCP relay can't connect a call.
+    // ponytail: frames[n] reaches a fresh world unsealed, as below; only Chrome's seal can't be got around.
+    if (config.relay && realm.RTCPeerConnection) {
+      const overTcp = (urls) => [urls].flat().filter((url) => /^turns:[^?]*(\?transport=tcp)?$|^turn:[^?]*\?transport=tcp$/i.test(url))
+      const relay = (configuration) => ({
+        ...configuration,
+        iceTransportPolicy: 'relay',
+        // `url` is the old name for `urls`; a server given only by it is dropped.
+        iceServers: [...(configuration?.iceServers ?? [])]
+          .map(({ url, ...server }) => ({ ...server, urls: overTcp(server.urls) }))
+          .filter((server) => server.urls.length),
+      })
+      const Orig = realm.RTCPeerConnection
+      const proxy = disguise(new Proxy(Orig, {
+        construct: (target, [configuration, ...rest], newTarget) => Reflect.construct(target, [relay(configuration), ...rest], newTarget),
+      }), Orig)
+      if (realm.webkitRTCPeerConnection === Orig) realm.webkitRTCPeerConnection = proxy
+      realm.RTCPeerConnection = proxy
+      Object.defineProperty(Orig.prototype, 'constructor', { value: proxy, writable: true, configurable: true })
+      hook(Orig.prototype, 'setConfiguration', (f, pc, [configuration, ...rest]) => Reflect.apply(f, pc, [relay(configuration), ...rest]))
+    }
+
     // A same-origin iframe or popup starts as a fresh world with untouched Intl and Date. Patch it
     // the moment the page first reaches it. Cross-origin ones throw here and get their own injection.
     // ponytail: frames[n] / window[n] reach a fresh world without these getters; hook DOM insertion if that matters.
@@ -241,8 +266,9 @@ export default function stealth(config) {
     // relative to themselves, so the move changes nothing. One URL always maps to one copy, so a
     // SharedWorker started twice in a page is still one worker.
     // ponytail: a module worker's own imports evaluate before its body, so they run unpatched.
+    // Workers have no WebRTC, so a seal alone leaves them be.
     const copies = new Map()
-    for (const name of ['Worker', 'SharedWorker']) {
+    for (const name of covered ? ['Worker', 'SharedWorker'] : []) {
       const Orig = realm[name]
       if (!Orig) continue
       realm[name] = disguise(new Proxy(Orig, {

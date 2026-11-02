@@ -105,7 +105,7 @@
     </div>
 
     <div id="coverPanel" role="tabpanel" aria-labelledby="scopeAll">
-    <div id="siteEmpty" class="px-5 pt-3" hidden>
+    <div id="siteEmpty" class="px-5 pb-5 pt-3" hidden>
       <p class="text-[13.5px] leading-[1.5] text-ink2"><strong id="siteEmptyName" class="font-semibold text-ink"></strong>
         uses your All sites cover.</p>
       <button id="addSiteRule" type="button" class="ink-button mt-3">Give it its own cover</button>
@@ -159,11 +159,11 @@
     </form>
     </div>
 
-    <fieldset class="mx-5 mt-3 border-t border-rule pt-3">
-      <legend class="sr-only">Mode, for all sites</legend>
+    <fieldset id="modeRow" class="mx-5 mt-3 border-t border-rule pt-3">
+      <legend class="sr-only">Mode, for <span data-scope-name>all sites</span></legend>
       <div class="flex items-center justify-between gap-4">
         <div class="min-w-0">
-          <p class="text-[13.5px] font-bold" aria-hidden="true">Mode <span class="font-medium text-ink3">· all sites</span></p>
+          <p class="truncate text-[13.5px] font-bold" aria-hidden="true">Mode <span class="font-medium text-ink3">· <span data-scope-name>all sites</span></span></p>
           <p id="modeNote" class="text-[12.5px] text-ink2"></p>
         </div>
         <div class="halves shrink-0">
@@ -185,7 +185,7 @@
 
     <!-- A secondary setting, so it's a line on the form with two tick boxes, not a second stamped switch. -->
     <fieldset id="webRtcRow" class="webrtc-line mx-5 mt-2.5 pb-3">
-      <legend class="sr-only">WebRTC, for all sites</legend>
+      <legend class="sr-only">WebRTC, for <span data-scope-name>all sites</span></legend>
       <div class="flex items-center justify-between gap-3">
         <p class="flex min-w-0 items-center gap-1.5 text-[12.5px]">
           <svg class="envelope shrink-0" width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor"
@@ -215,8 +215,8 @@
               <span class="tick-box" aria-hidden="true"><svg viewBox="0 0 18 18"><path d="M1.8 2.3 16.1 15.7" /><path d="M16.2 1.9 2 16.1" /></svg></span>
               Sealed
             </label>
-            <span id="webRtcSealedTip" class="helper-slip" role="tooltip">WebRTC stops asking servers for your IP, on
-              every site. Calls go through a relay, so they may take a moment longer to connect.</span>
+            <span id="webRtcSealedTip" class="helper-slip" role="tooltip">WebRTC stops asking servers for your IP.
+              Calls go through a relay, so they may take a moment longer to connect.</span>
           </div>
         </div>
       </div>

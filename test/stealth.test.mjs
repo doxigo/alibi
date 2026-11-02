@@ -150,9 +150,36 @@ execFileSync('node', ['--no-warnings', '--input-type=module', '-e', `
 `], { stdio: 'inherit', env: { ...process.env, TZ: 'Asia/Tokyo' } })
 console.log('ok a fixed cover keeps its zone on the system')
 
+// A site's own WebRTC seal: relay candidates only, through TCP or TLS relays, by either constructor and
+// setConfiguration. A seal alone touches no zone and copies no worker.
+execFileSync('node', ['--no-warnings', '--input-type=module', '-e', `
+  import assert from 'node:assert/strict'
+  globalThis.RTCPeerConnection = class { constructor(c) { this.c = c } setConfiguration(c) { this.c = c } }
+  globalThis.webkitRTCPeerConnection = RTCPeerConnection
+  globalThis.Worker = class {}
+  const native = [Date, Worker]
+  const { default: s } = await import(${JSON.stringify(new URL('../js/stealth.js', import.meta.url).href)})
+  s({ relay: true })
+  assert.deepEqual([Date, Worker], native)
+  assert.equal(webkitRTCPeerConnection, RTCPeerConnection)
+  const pc = new webkitRTCPeerConnection({ iceServers: [
+    { urls: ['stun:stun.example:19302', 'turn:t.example:3478?transport=tcp', 'turn:t.example:3478', 'turns:t.example:443?transport=udp'], username: 'u', credential: 'p' },
+    { urls: 'TURNS:t.example:443' }, { urls: 'stun:s.example' }, { url: 'turn:old.example?transport=tcp' },
+  ] })
+  assert.deepEqual(pc.c, { iceTransportPolicy: 'relay', iceServers: [
+    { urls: ['turn:t.example:3478?transport=tcp'], username: 'u', credential: 'p' }, { urls: ['TURNS:t.example:443'] },
+  ] })
+  assert.ok(pc instanceof RTCPeerConnection && pc.constructor === RTCPeerConnection)
+  assert.deepEqual(new RTCPeerConnection().c, { iceTransportPolicy: 'relay', iceServers: [] })
+  pc.setConfiguration({ iceTransportPolicy: 'all', iceServers: [{ urls: 'turn:t.example' }] })
+  assert.deepEqual(pc.c, { iceTransportPolicy: 'relay', iceServers: [] })
+  assert.equal(String(RTCPeerConnection), 'class { constructor(c) { this.c = c } setConfiguration(c) { this.c = c } }')
+`], { stdio: 'inherit' })
+console.log('ok a site seals WebRTC in its pages')
+
 // "Match my IP address" covers move with the connection; every other cover stays put.
 globalThis.chrome = { runtime: { getManifest: () => ({ permissions: [] }) } }
-const { checkedCover, followIp, followsIp, holdsPlace, sameZone, systemCover } = await import('../js/sites.js')
+const { checkedCover, coverFor, followIp, followsIp, holdsPlace, pageCover, sameZone, systemCover } = await import('../js/sites.js')
 const stockholm = { timezone: 'Europe/Stockholm', locale: 'sv-SE', lat: 59.33, lon: 18.07 }
 const oslo = { configuration: 'ipAddress', timezone: 'Europe/Oslo', locale: 'nb-NO', lat: 59.91, lon: 10.75 }
 const tokyo = { configuration: 'tokyo', timezone: 'Asia/Tokyo', locale: 'ja-JP' }
@@ -183,3 +210,16 @@ assert.ok(!holdsPlace(oslo) && !holdsPlace({ configuration: 'browserDefault', ti
 assert.ok(!holdsPlace({ configuration: 'custom', locale: 'de-DE' }) && !holdsPlace({ ...stockholm, configuration: 'ipAddress' }))
 assert.ok(!holdsPlace({ configuration: 'browserDefault', sites: { 'b.com': tokyo } }), 'a per-site place stays in the browser')
 console.log('ok only a place for all sites holds the system')
+
+// Each site has its own mode (a rule from before keeps All sites'), and pages are given what they run
+// themselves: the cover in Stealth, and a seal of the site's own while Chrome's is off.
+const modes = { ...tokyo, useDebuggerApi: true, sites: { 'old.com': oslo, 'a.com': { ...oslo, useDebuggerApi: false }, 'b.com': { ...tokyo, useDebuggerApi: true, sealWebRtc: true }, 'off.b.com': { useDebuggerApi: false, sealWebRtc: true } } }
+assert.equal(coverFor('old.com', modes).useDebuggerApi, true)
+assert.equal(coverFor('a.com', modes).useDebuggerApi, false)
+assert.equal(pageCover(modes, 'x.com'), null, 'a Deep site with no seal gets nothing in the page')
+assert.deepEqual(pageCover(modes, 'shop.a.com'), { configuration: 'ipAddress', timezone: 'Europe/Oslo', locale: 'nb-NO', lat: 59.91, lon: 10.75 })
+assert.deepEqual(pageCover(modes, 'b.com'), { relay: true }, 'a Deep site gets only its seal')
+assert.ok(pageCover(modes, 'off.b.com').relay && !pageCover(modes, 'off.b.com').timezone, 'a Stealth site off its cover still gets its seal')
+assert.equal(pageCover({ ...modes, sealWebRtc: true }, 'b.com'), null, "Chrome's seal already holds")
+assert.equal(pageCover({ sites: { 'a.com': { configuration: 'browserDefault' } } }, 'a.com'), null)
+console.log('ok each site has its own mode and seal')

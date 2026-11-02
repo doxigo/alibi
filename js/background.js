@@ -1,28 +1,26 @@
 import { applyDebugger, startChild } from './debugger.js'
 import {
-  checkedCover, coverFor, followIp, followsIp, holdsPlace, ipCover, isActive, languagesFor, sameZone, siteKey, systemCover,
+  checkedCover, coverFor, followIp, followsIp, holdsPlace, ipCover, languagesFor, pageCover, sameZone, siteKey, systemCover,
   userScriptsAvailable,
 } from './sites.js'
 import stealth from './stealth.js'
 
-const KEYS = ['useDebuggerApi', 'configuration', 'timezone', 'locale', 'lat', 'lon', 'sites']
+const KEYS = ['useDebuggerApi', 'sealWebRtc', 'configuration', 'timezone', 'locale', 'lat', 'lon', 'sites']
 // Kept as a promise so a warm worker answers instantly and a cold one still waits for storage.
 let settings = chrome.storage.local.get(KEYS)
-
-const stealthCover = (settings, url) => {
-  if (settings.useDebuggerApi) return null
-  const { configuration, timezone, locale, lat, lon } = coverFor(siteKey(url) ?? '', settings)
-  return isActive({ timezone, locale, lat, lon }) ? { configuration, timezone, locale, lat, lon } : null
-}
 
 // Bake every cover into one user script so Chrome runs it at document_start, before any page script.
 // The script picks its cover from the top-level site, so iframes tell the same story as their page.
 // Resolves true when a stealth user script is registered.
 const registerUserScript = async () => {
   if (!userScriptsAvailable()) return false
-  const { useDebuggerApi, sites = {}, ...everywhere } = await settings
+  const current = await settings
+  const everywhere = pageCover(current, '')
+  const sites = Object.fromEntries(Object.keys(current.sites ?? {}).map((site) => [site, pageCover(current, site)]))
   await chrome.userScripts.unregister()
-  if (useDebuggerApi || !(isActive(everywhere) || Object.values(sites).some(isActive))) return false
+  if (!everywhere && !Object.values(sites).some(Boolean)) return false
+  // A site whose pages need nothing keeps an empty entry, so it doesn't take its parent domain's instead.
+  for (const site in sites) sites[site] ??= {}
   const topHost = `(() => {
     const origins = location.ancestorOrigins
     try { return new URL(origins?.length ? origins[origins.length - 1] : location.href).hostname } catch { return '' }
@@ -78,7 +76,8 @@ const syncHeaders = () => (headerRulesReady = headerRulesReady.then(syncHeaderRu
 // WebRTC asks a STUN server, over UDP, which address it sees. UDP can go around a proxy, or a VPN that
 // doesn't take every route, and the answer is the real IP, which the page can read. Sealed, Chrome sends
 // WebRTC through the proxy only, or with no proxy over TCP alone, which the VPN carries, and asks no STUN
-// server. It's one browser-wide setting, so it holds for every site, in either mode.
+// server. It's one browser-wide setting, so it holds for every site, in either mode. While it's off, a site
+// can still seal WebRTC on its own: its pages then keep WebRTC to TCP relays themselves (stealth.js).
 const syncWebRtc = async () => {
   const { sealWebRtc } = await chrome.storage.local.get('sealWebRtc')
   const policy = chrome.privacy.network.webRTCIPHandlingPolicy
@@ -233,8 +232,9 @@ chrome.runtime.onMessage.addListener((message) => {
     .then((stored) => stored.companion !== true && holdsPlace(stored) && probeCompanion())
 })
 
-// What only says how the companion is doing, or seals WebRTC, changes no cover, so no cover is synced again for it.
-const BOOKKEEPING = ['companion', 'systemZone', 'sealWebRtc']
+// What only says how the companion is doing changes no cover, so no cover is synced again for it. Chrome's
+// WebRTC seal does: a site's own seal goes into its pages only while Chrome's is off.
+const BOOKKEEPING = ['companion', 'systemZone']
 chrome.storage.onChanged.addListener((changes) => {
   if (changes.sealWebRtc) syncWebRtc().catch(console.error)
   if (Object.keys(changes).every((key) => BOOKKEEPING.includes(key))) return
@@ -262,8 +262,9 @@ chrome.runtime.onInstalled.addListener((details) => {
 // Accurate, but Chrome shows the "started debugging" banner while attached.
 const deepCover = async (url) => {
   const current = await settings
-  if (!current.useDebuggerApi) return null
   const cover = coverFor(siteKey(url ?? '') ?? '', current)
+  // A Stealth site: a tab that comes from a Deep one is detached. With no Deep site at all, none is attached.
+  if (!cover.useDebuggerApi) return [current, ...Object.values(current.sites ?? {})].some((rule) => rule.useDebuggerApi) ? {} : null
   // As in Stealth: an IP cover on the Mac's own zone leaves the zone live, whichever name each gives it.
   return followsIp(cover) && sameZone(cover.timezone, Intl.DateTimeFormat().resolvedOptions().timeZone) ? { ...cover, timezone: null } : cover
 }
@@ -314,15 +315,15 @@ chrome.debugger.onEvent.addListener((source, method, params) => {
   startChild(source, params, async () => (await deepCover((await chrome.tabs.get(source.tabId)).url)) ?? {})
 })
 
-// Stealth mode (default): patch each new document's JS globals. No debugger, no banner.
+// Stealth mode (default): patch each new document's JS globals. No debugger, no banner. A Deep site's
+// pages get only a WebRTC seal of their own here, when they have one.
 // With user scripts allowed, the registered script already ran at document_start. Otherwise inject
 // on commit, which can lose the race against inline <head> scripts when the body arrives instantly.
 chrome.webNavigation.onCommitted.addListener(async ({ tabId, frameId, url }) => {
   const current = await settings
-  if (current.useDebuggerApi) return
   // Frames take the cover of the page they sit in.
   const topUrl = frameId === 0 ? url : (await chrome.webNavigation.getFrame({ tabId, frameId: 0 }).catch(() => null))?.url
-  const cover = stealthCover(current, topUrl ?? url)
+  const cover = pageCover(current, siteKey(topUrl ?? url) ?? '')
   if (!cover) return
   if (userScriptsAvailable()) {
     if (await userScriptReady) return

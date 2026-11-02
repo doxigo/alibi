@@ -139,7 +139,7 @@ For Stealth Mode to also catch scripts that run the instant a page loads, open `
 
 ## Per-site covers
 
-The popup has two tabs. **All sites** holds your usual cover. The second tab is named after the current site: choose **Give it its own cover** and that site, along with its subdomains, gets separate settings. The most specific rule wins, and iframes follow the page they're embedded in. To keep one site on your real location, give it its own cover and set it to **Off (real location)**. Stealth/Deep mode and WebRTC apply to all sites.
+The popup has two tabs. **All sites** holds your usual cover. The second tab is named after the current site: choose **Give it its own cover** and that site, along with its subdomains, gets separate settings. The most specific rule wins, and iframes follow the page they're embedded in. To keep one site on your real location, give it its own cover and set it to **Off (real location)**. A site's own cover has its own Stealth/Deep mode too, and can seal WebRTC on its own (see [WebRTC](#webrtc)).
 
 ## IP Address
 
@@ -163,6 +163,8 @@ WebRTC, which sites use for calls, asks a STUN server over UDP which IP address 
 
 The **WebRTC** line under Mode in the popup closes that. Point at either box for what it does. **Sealed** sets Chrome's WebRTC IP handling policy (`chrome.privacy.network.webRTCIPHandlingPolicy`) to `disable_non_proxied_udp`. WebRTC then goes through your proxy only, or with no proxy over TCP alone, which a VPN carries, and asks no STUN server for your address. It's one setting for the whole browser, so it holds for every site in both modes, and it reaches pages that are already open without a reload. **Open**, the default, leaves the setting to Chrome.
 
+A site with its own cover can be **Sealed** while All sites stays Open. Chrome's setting covers the whole browser, so that seal is in the site's pages instead: Alibi has their WebRTC use relays only, reached over TCP or TLS. Pages already open pick it up when they reload. It's weaker than Chrome's seal, since a page that sets out to can reach a fresh frame (`frames[0]`) before Alibi patches it. While All sites is Sealed, every site is, and a site's own boxes are greyed out.
+
 Sealed has a cost. Calls connect through a TCP relay instead of directly, which can add some delay, and a site that offers no TCP relay can't connect a call at all. If another extension or a policy holds the setting, the popup says which and greys out the boxes, since they could change nothing (between extensions, Chrome lets the most recently installed one win).
 
 The [check page](https://doxigo.github.io/alibi/) shows the public address WebRTC gives a page next to the one its requests come from. Sealed, it shows none, and so does a public test such as [BrowserLeaks](https://browserleaks.com/webrtc).
@@ -173,7 +175,7 @@ The [check page](https://doxigo.github.io/alibi/) shows the public address WebRT
 
 **declarativeNetRequestWithHostAccess:** Sets the `Accept-Language` request header to match each site's cover.
 
-**privacy:** Only while WebRTC is Sealed: sets Chrome's WebRTC IP handling policy, so WebRTC can't show sites your IP address around your VPN or proxy. Alibi touches no other privacy setting.
+**privacy:** Only while WebRTC is Sealed for all sites: sets Chrome's WebRTC IP handling policy, so WebRTC can't show sites your IP address around your VPN or proxy. Alibi touches no other privacy setting.
 
 **userScripts:** Lets Stealth Mode run before page scripts once you turn on "Allow User Scripts". Note: the Chrome Web Store limits this API to user-script managers, so a store build may need to drop it and rely on the injection fallback.
 

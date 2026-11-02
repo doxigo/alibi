@@ -37,7 +37,7 @@ With no cover on Match my IP address, opening the popup, changing places and bro
 
 - **Read and change data on all websites, scripting:** so the spoofed time zone, language and location reach every page and frame.
 - **declarativeNetRequest:** so the `Accept-Language` header matches the language you picked.
-- **privacy:** only while you have WebRTC on Sealed, to set Chrome's WebRTC IP handling policy, so WebRTC can't show sites your IP address around your VPN or proxy.
+- **privacy:** only while you have WebRTC on Sealed for all sites, to set Chrome's WebRTC IP handling policy, so WebRTC can't show sites your IP address around your VPN or proxy.
 - **debugger:** only for Deep mode, which you turn on yourself. Chrome then shows a "started debugging this browser" banner.
 - **webNavigation:** to apply the right cover as pages load.
 - **storage:** for your settings.

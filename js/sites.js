@@ -1,13 +1,24 @@
-// Per-site covers live in storage as `sites: { 'example.com': { configuration, timezone, locale, lat, lon } }`.
+// Per-site covers live in storage as
+// `sites: { 'example.com': { configuration, timezone, locale, lat, lon, useDebuggerApi, sealWebRtc } }`.
 // Everything else at the top level of storage is the cover for all other sites.
 
 // Self-contained: background.js serializes it into the user script.
 // The most specific rule wins, so a rule for example.com also covers shop.example.com.
+// A rule from before sites had a mode of their own keeps All sites' mode.
 export function coverFor(host, { sites = {}, ...everywhere }) {
   for (let h = host; h; h = h.slice(h.indexOf('.') + 1 || h.length)) {
-    if (sites[h]) return { ...sites[h], site: h }
+    if (sites[h]) return { useDebuggerApi: everywhere.useDebuggerApi, ...sites[h], site: h }
   }
   return everywhere
+}
+
+// What a site's pages are given to run themselves (stealth.js): the cover in Stealth mode, and `relay`
+// while the site seals WebRTC on its own and Chrome's browser-wide seal is off. Null when they need nothing.
+export const pageCover = (settings, host) => {
+  const { useDebuggerApi, sealWebRtc, configuration, timezone, locale, lat, lon } = coverFor(host, settings)
+  const cover = useDebuggerApi ? {} : { configuration, timezone, locale, lat, lon }
+  if (sealWebRtc && !settings.sealWebRtc) cover.relay = true
+  return isActive(cover) || cover.relay ? cover : null
 }
 
 // The key a new rule is saved under: http(s) hostname without a leading "www.".
