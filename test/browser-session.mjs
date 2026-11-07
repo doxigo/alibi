@@ -25,7 +25,9 @@ export async function browserSession() {
   const fail = (error) => { for (const job of pending.values()) job.reject(error); pending.clear() }
   browser.on('error', fail)
   browser.on('exit', (code) => fail(new Error(`Chrome exited (${code}): ${stderr}`)))
-  browser.stdio[3].on('error', fail)
+  for (const pipe of [browser.stdio[3], browser.stdio[4]]) {
+    pipe.on('error', (error) => fail(new Error(`Chrome protocol pipe failed: ${error.message}\n${stderr}`)))
+  }
   browser.stdio[4].on('data', (chunk) => {
     buffer += chunk
     let end
