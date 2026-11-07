@@ -47,6 +47,22 @@ jobs:
           path: build/
           if-no-files-found: error
 
+  browser:
+    name: Chrome regression
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - uses: browser-actions/setup-chrome@v2
+        id: chrome
+        with:
+          chrome-version: stable
+      - run: node test/browser.mjs
+        env:
+          CHROME_PATH: ${{ steps.chrome.outputs.chrome-path }}
+
   companion:
     name: Companion (${{ matrix.os }})
     strategy:

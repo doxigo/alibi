@@ -1,0 +1,29 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Alibi browser regression</title>
+<script>
+  const read = () => ({ zone: Intl.DateTimeFormat().resolvedOptions().timeZone, locale: Intl.NumberFormat().resolvedOptions().locale, language: navigator.language })
+  window.check = { early: read(), header: '%ACCEPT_LANGUAGE%' }
+</script>
+<body>
+<script>
+  check.page = read()
+  addEventListener('message', ({ data }) => {
+    if (['same', 'cross'].includes(data?.alibiCheck)) check[data.alibiCheck] = data
+  })
+  for (const [name, host] of [['same', location.hostname], ['cross', location.hostname === 'localhost' ? '127.0.0.1' : 'localhost']]) {
+    const frame = document.createElement('iframe')
+    frame.src = `http://${host}:${location.port}/frame.html?as=${name}`
+    document.body.append(frame)
+  }
+  const worker = (name, url, options) => {
+    const instance = new Worker(url, options)
+    instance.onmessage = ({ data }) => { check[name] = data }
+    instance.onerror = (event) => { check[name] = { error: event.message || 'Worker failed' } }
+  }
+  const blob = URL.createObjectURL(new Blob([`postMessage((${read})())`], { type: 'text/javascript' }))
+  worker('blob', blob)
+  URL.revokeObjectURL(blob)
+  worker('file', '/worker.js')
+  worker('module', '/worker.mjs', { type: 'module' })
+</script>
