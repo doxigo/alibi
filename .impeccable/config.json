@@ -17,6 +17,24 @@
         ],
         "createdAt": "2026-10-27T12:48:42.213Z",
         "reason": "DESIGN.md night scheme: the guide sets night-ink-2 (#b6becd) on night-paper (#13204a), the documented secondary ink on airmail navy, about 8.3:1 contrast"
+      },
+      {
+        "rule": "gray-on-color",
+        "value": "*",
+        "files": [
+          "html/manage.html"
+        ],
+        "createdAt": "2026-11-07T09:40:11.381Z",
+        "reason": "Codex: retaining DESIGN.md night-ink-2 #b6becd and night-ink-3 #919bad on night-paper #13204a. Measured sRGB contrast is 8.43:1 and 5.62:1, respectively. These are intentional existing text tokens."
+      },
+      {
+        "rule": "gray-on-color",
+        "value": "*",
+        "files": [
+          "html/popup.html"
+        ],
+        "createdAt": "2026-11-07T09:40:11.397Z",
+        "reason": "Codex: retaining the documented DESIGN.md navy scheme. Existing secondary text #b6becd and placeholders #919bad on #13204a exceed 4.5:1 contrast; no palette change is requested."
       }
     ]
   }

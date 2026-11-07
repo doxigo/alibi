@@ -135,11 +135,23 @@ Some things can't be hidden. Sites can often tell that an IP address belongs to 
 
 For Stealth Mode to also catch scripts that run the instant a page loads, open `chrome://extensions`, click Details on Alibi, and turn on **Allow User Scripts**. Alibi then registers its patches through `chrome.userScripts`, and Chrome runs them before any page script. With the toggle off, Alibi injects on page commit instead, and inline `<head>` scripts can still see real values when the HTML arrives within a few milliseconds of the headers. The popup shows a hint while the toggle is off.
 
-**Deep Mode.** Turn this on in the popup. Alibi attaches `chrome.debugger` and uses the CDP `Emulation.*` overrides. Spoofing then happens below the page, which is much harder to detect, and cross-site iframes and Web Workers get the cover before their first script runs. Leaving the New Tab page (which the debugger can't touch), Alibi briefly parks the tab on a blank page to attach first, then continues to the site, so even that first page is covered from its first script. One limit remains: when you move between two sites with *different* covers in the same tab and the new page's HTML arrives almost instantly, its first inline scripts can see the previous site's cover (never your real location). Chrome holds debugger commands until the navigation commits, and re-sending the navigation could break form submissions. While it's active, Chrome shows the "started debugging this browser" banner. To use Deep Mode without the banner, launch Chrome with `--silent-debugger-extension-api` ([how to pass flags](https://www.chromium.org/developers/how-tos/run-chromium-with-flags/)). On Windows, right-click the shortcut you start Chrome from, choose **Properties**, and add the flag to the end of **Target**, after the closing quote. Quit Chrome completely first, including from the system tray, or the copy that's still running ignores the flag.
+**Deep Mode.** Browser support is required. Chrome 157 rejects extension requests for native timezone and locale overrides; Alibi reports **Failed** with instructions to choose Stealth and reload. It does not silently claim protection or switch modes. This restriction is present in [Chromium's emulation implementation](https://chromium.googlesource.com/chromium/src/+/main/third_party/blink/renderer/core/inspector/inspector_emulation_agent.cc). The behavior below applies only when the browser accepts the overrides.
+
+Turn this on in the popup. Alibi attaches `chrome.debugger` and uses the CDP `Emulation.*` overrides. Spoofing then happens below the page, which is much harder to detect, and cross-site iframes and Web Workers get the cover before their first script runs. Leaving the New Tab page (which the debugger can't touch), Alibi briefly parks the tab on a blank page to attach first, then continues to the site, so even that first page is covered from its first script. One limit remains: when you move between two sites with *different* covers in the same tab and the new page's HTML arrives almost instantly, its first inline scripts can see the previous site's cover (never your real location). Chrome holds debugger commands until the navigation commits, and re-sending the navigation could break form submissions. While it's active, Chrome shows the "started debugging this browser" banner. To use Deep Mode without the banner, launch Chrome with `--silent-debugger-extension-api` ([how to pass flags](https://www.chromium.org/developers/how-tos/run-chromium-with-flags/)). On Windows, right-click the shortcut you start Chrome from, choose **Properties**, and add the flag to the end of **Target**, after the closing quote. Quit Chrome completely first, including from the system tray, or the copy that's still running ignores the flag.
 
 ## Per-site covers
 
 The popup has two tabs. **All sites** holds your usual cover. The second tab is named after the current site: choose **Give it its own cover** and that site, along with its subdomains, gets separate settings. The most specific rule wins, and iframes follow the page they're embedded in. To keep one site on your real location, give it its own cover and set it to **Off (real location)**. A site's own cover has its own Stealth/Deep mode too, and can seal WebRTC on its own (see [WebRTC](#webrtc)).
+
+## Manage covers and check application
+
+Open **Manage** in the popup to search, add, edit or remove site rules. Named profiles save a reusable copy of a cover. Loading a profile fills the form; **Save cover** applies it. A temporary site rule can expire in one hour or 24 hours. Expiry removes that rule, so the next matching parent rule or All sites applies. Existing Stealth documents need a reload; supported Deep overrides update live.
+
+**Export settings** saves a versioned JSON backup locally. **Import and merge** validates the whole file before saving, merges site rules and profiles, and replaces matching names and All sites settings. Backups contain hostnames and coordinates. Limits are 1 MB per import, 1,000 site rules and 100 profiles.
+
+Application status distinguishes **Configured**, **Applied**, **Failed**, **Reload required** and **Off**. Applied means the injection or browser commands completed; it is not proof against fingerprinting. A Stealth settings change keeps the old document's cover until reload. Deep-to-Stealth changes also require reload. Unrelated tabs keep their debugger sessions. The manager shows the last successful browser IP lookup or companion location update and any later browser lookup failure. An old timestamp does not confirm that the current connection is unchanged.
+
+**Run diagnostics** compares the selected tab's page, fresh iframe, classic and module blob workers, Accept-Language header, permitted geolocation and WebRTC candidates. It does not request location permission. The header test contacts httpbingo.org and the STUN test contacts Google's server, so those services see the connection address. No page contents or referrer are sent by the header test. Results come from the page and can be affected by its scripts or policies. No WebRTC candidates is inconclusive. These blob-worker checks do not cover Stealth's known file-worker limitations.
 
 ## IP Address
 
@@ -197,11 +209,14 @@ Alibi is built using JavaScript and Tailwind CSS.
 yarn
 yarn build        # outputs to /build
 yarn build:store  # Chrome Web Store zip: same build without the userScripts and nativeMessaging permissions or the pinned key
-yarn test         # checks stealth time zone math against real TZ processes
+yarn test         # settings, background/debugger lifecycle, stealth and geolocation regressions
+yarn test:browser # real Chrome checks in a disposable profile, native messaging disabled
 yarn testpage     # the check page at http://localhost:8642/, with a second site and delay/policy options
 ```
 
 The scripts run the same on Windows, macOS and Linux, with no `rm`, `cp` or `zip` needed. You need Node 22.2 or later and Yarn 1 (`npm install -g yarn`; recent Node releases no longer bundle Corepack). On Windows, if PowerShell refuses with "running scripts is disabled on this system", run the same commands from Command Prompt.
+
+`test:browser` uses `CHROME_PATH` if set, otherwise the standard Chrome path on macOS or `google-chrome` on PATH. It serves fixtures on loopback, uses Chrome's testing-only extension loader, and leaves your normal browser profile untouched. Diagnostic network replies are stubbed. Supported Deep overrides are checked; browsers that block them must report an explicit failure. CI runs the browser suite on Chrome stable.
 
 Alibi Companion lives in `companion/` and is written in Go (1.26 or later):
 

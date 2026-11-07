@@ -16,19 +16,19 @@ Alibi is a Chromium extension (Chrome, Brave) that makes the browser report a di
 
 ## Positioning
 
-Two modes with an honest trade-off. Stealth Mode (default) patches the page's JavaScript APIs and never attaches the debugger, so Chrome shows no "started debugging this browser" banner. When "Allow User Scripts" is on, it runs before any page script. Deep Mode uses `chrome.debugger` CDP emulation for browser-level spoofing, and Chrome shows the banner. Alibi forks Cloaq; the banner-free Stealth Mode is the difference.
+Two modes with an honest trade-off. Stealth Mode (default) patches the page's JavaScript APIs and never attaches the debugger, so Chrome shows no "started debugging this browser" banner. When "Allow User Scripts" is on, it runs before any page script. Deep Mode requests `chrome.debugger` CDP emulation for browser-level spoofing, and Chrome shows the banner. Browser support is required: Chrome 157 refuses native timezone and locale overrides from extensions. Failed application is shown explicitly, with instructions to select Stealth and reload. Alibi forks Cloaq; the banner-free Stealth Mode is the difference.
 
 ## Operating Context
 
 - Used mostly from the toolbar popup (fixed 400px wide), in short bursts: choose a preset location, "Match IP Address", or custom values, then reload the page.
-- The info page opens on install as onboarding and is also the options page.
+- The info page opens on install as onboarding and is also the options page. Manage opens the site rule editor, profiles, temporary covers, diagnostics and local JSON backups.
 - Settings: configuration preset, time zone (IANA), locale (BCP 47), latitude and longitude, and the Deep Mode toggle. "Match my IP address" fetches get.geojs.io over HTTPS, only when chosen.
 - Runs in Brave and Chrome, often alongside a VPN extension or client.
 
 ## Capabilities and Constraints
 
 - Manifest V3; vanilla JS ES modules, no framework. Tailwind CSS 3 builds `tailwind.css` into `css/style.css`. Static HTML pages live in `html/`.
-- Stealth Mode covers new iframes and blob Web Workers, not workers started from the site's own files (wrapping those breaks sites that forbid blob workers). Deep Mode covers those too, but shows Chrome's banner.
+- Stealth Mode covers new iframes and blob Web Workers, not workers started from the site's own files (wrapping those breaks sites that forbid blob workers). Where supported, Deep Mode covers those too and shows Chrome's banner.
 - The locale also drives `navigator.language(s)` and the `Accept-Language` header (declarativeNetRequest rules, per site).
 - WebRTC: Open | Sealed. Sealed sets `chrome.privacy.network.webRTCIPHandlingPolicy` to `disable_non_proxied_udp`, browser-wide, so WebRTC can't reveal the real IP around a VPN or proxy. Off by default because calls then need a TCP relay. A site's own cover can also be Sealed while All sites is Open: its pages force relay-only ICE over TCP/TLS TURN (stealth.js), which is weaker than the browser-wide policy. Mode is per site too.
 - Alibi doesn't change the IP address; you need a VPN or proxy for that.
@@ -44,7 +44,9 @@ Two modes with an honest trade-off. Stealth Mode (default) patches the page's Ja
 ## Evidence on Hand
 
 - No testimonials, user counts, store ratings or press exist. Don't invent any.
-- Verified behavior from end-to-end tests in Chrome for Testing 155: Stealth spoofs time zone, locale, geolocation and iframes without attaching the debugger. With User Scripts allowed, it catches inline `<head>` scripts.
+- Earlier verified behavior from end-to-end tests in Chrome for Testing 155: Stealth spoofs time zone, locale, geolocation and iframes without attaching the debugger. With User Scripts allowed, it catches inline `<head>` scripts.
+
+- Current real Chrome 157 regression checks verify Stealth document-start injection, frames, blob workers, headers and synthetic geolocation, plus an explicit failed status for blocked Deep overrides. File workers retain native values in Stealth.
 
 ## Product Principles
 
