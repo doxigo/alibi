@@ -21,7 +21,7 @@ export async function browserSession() {
     '--metrics-recording-only', '--no-proxy-server', 'about:blank'], { stdio: ['ignore', 'ignore', 'pipe', 'pipe', 'pipe'] })
   let id = 0, buffer = '', stderr = ''
   const pending = new Map()
-  browser.stderr.on('data', (chunk) => { stderr = (stderr + chunk).slice(-2000) })
+  browser.stderr.on('data', (chunk) => { stderr = (stderr + chunk).slice(0, 16000) })
   const fail = (error) => { for (const job of pending.values()) job.reject(error); pending.clear() }
   browser.on('error', fail)
   browser.on('exit', (code) => fail(new Error(`Chrome exited (${code}): ${stderr}`)))

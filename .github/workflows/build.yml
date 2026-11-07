@@ -62,6 +62,7 @@ jobs:
       - run: node test/browser.mjs
         env:
           CHROME_PATH: ${{ steps.chrome.outputs.chrome-path }}
+          CHROME_DEVEL_SANDBOX: /opt/google/chrome/chrome-sandbox
 
   companion:
     name: Companion (${{ matrix.os }})
