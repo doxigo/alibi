@@ -318,24 +318,27 @@ func (g *agent) homeLocked() *homeState {
 	return g.h
 }
 
-func (g *agent) saveHomeLocked() {
+func (g *agent) saveHomeLocked() error {
 	if g.dryRun {
-		return
+		return nil
 	}
 	h := g.homeLocked()
 	if g.homeFile != "" {
 		if err := saveHome(g.homeFile, *h); err != nil {
 			g.logf("couldn't save home: %v", err)
+			return err
 		}
 	}
 	if g.notes == nil {
-		return
+		return nil
 	}
 	if note := noteFor(*h); len(note.Zones) == 0 {
 		g.notes.clear()
 	} else if err := g.notes.write(note); err != nil {
 		g.logf("couldn't tell other users' agents about the clock: %v", err)
+		return err
 	}
+	return nil
 }
 
 // clockNote is what an agent tells other users' agents about the time zone they all share: the zones
@@ -487,9 +490,15 @@ func (g *agent) holdLocked() {
 }
 
 // intendLocked writes down what the agent is about to set, before it sets it.
-func (g *agent) intendLocked(want setting) {
-	g.homeLocked().Pending = &want
-	g.saveHomeLocked()
+func (g *agent) intendLocked(want setting) error {
+	h := g.homeLocked()
+	previous := h.Pending
+	h.Pending = &want
+	if err := g.saveHomeLocked(); err != nil {
+		h.Pending = previous
+		return err
+	}
+	return nil
 }
 
 func (g *agent) vpnUp() bool { return g.vpn != nil && g.vpn() }
@@ -597,7 +606,9 @@ func (g *agent) settle(found cover, have bool, w *wish) (cover, string, string) 
 	changed := false
 	if syncing {
 		if !known || now != want {
-			g.intendLocked(want)
+			if err := g.intendLocked(want); err != nil {
+				return found, "", expected
+			}
 		}
 		changed, err = apply(g.sys, want)
 		if changed || g.homeLocked().Pending != nil {

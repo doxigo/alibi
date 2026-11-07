@@ -67,7 +67,7 @@ func at(country string) cover {
 
 func TestJudge(t *testing.T) {
 	s := defaultSettings()
-	none := leakReport{IPv6: "none", DNS: geoAnswer{IP: "1.1.1.1", Org: "Cloudflare, Inc."}}
+	none := leakReport{Checked: time.Now(), IPv6: "seen", DNS: geoAnswer{IP: "1.1.1.1", Org: "Cloudflare, Inc."}}
 	for _, c := range []struct {
 		name  string
 		place cover
@@ -89,9 +89,9 @@ func TestJudge(t *testing.T) {
 		// With a list of countries, home is just another country that isn't on it.
 		{"allowed home", at("IR"), none, "IR", settings{Allowed: []string{"IR"}}, fine, ""},
 		{"IPv6 elsewhere", at("TJ"), leakReport{IPv6: "seen", IPv6At: geoAnswer{Country: "IR"}}, "IR", s, wrong, "IPv6 traffic comes out in Iran, outside the VPN"},
-		{"IPv6 with the VPN", at("TJ"), leakReport{IPv6: "seen", IPv6At: geoAnswer{Country: "TJ"}}, "IR", s, fine, ""},
+		{"IPv6 with the VPN", at("TJ"), leakReport{Checked: time.Now(), IPv6: "seen", IPv6At: geoAnswer{Country: "TJ"}}, "IR", s, fine, ""},
 		{"DNS at home", at("TJ"), leakReport{DNS: geoAnswer{Country: "IR", CountryName: "Iran", City: "Tehran", Org: "TCI"}}, "IR", s, wrong, "DNS lookups go through Tehran, Iran (TCI), outside the VPN"},
-		{"DNS abroad", at("TJ"), leakReport{DNS: geoAnswer{Country: "DE", CountryName: "Germany", Org: "Google LLC"}}, "IR", s, fine, ""},
+		{"DNS abroad", at("TJ"), leakReport{Checked: time.Now(), IPv6: "seen", DNS: geoAnswer{Country: "DE", CountryName: "Germany", Org: "Google LLC"}}, "IR", s, fine, ""},
 	} {
 		got, problems := judge(c.place, c.leaks, c.home, c.s)
 		if got != c.want || (c.says != "" && !strings.Contains(strings.Join(problems, " "), c.says)) || (c.says == "" && len(problems) > 0) {
@@ -109,7 +109,7 @@ func TestLeakChecker(t *testing.T) {
 		overIPv6: func(context.Context) (geoAnswer, error) { return geoAnswer{}, errors.New("no route") },
 	}
 	r := c.check(context.Background())
-	if r.IPv6 != "none" || r.DNS.IP != "172.253.12.27" || describe(r.DNS) != "Frankfurt, Germany (Google LLC)" || r.DNSErr != "" {
+	if r.IPv6 != "unknown" || r.IPv6Err == "" || r.DNS.IP != "172.253.12.27" || describe(r.DNS) != "Frankfurt, Germany (Google LLC)" || r.DNSErr != "" {
 		t.Errorf("%+v", r)
 	}
 	c.overIPv6 = func(context.Context) (geoAnswer, error) { return geoAnswer{Country: "TJ"}, nil }
@@ -153,5 +153,28 @@ func TestDecodeKeepsWhatTheTrayShows(t *testing.T) {
 	}
 	if long := clean(strings.Repeat("é", 100)); len([]rune(long)) != 60 {
 		t.Errorf("clean kept %d runes", len([]rune(long)))
+	}
+}
+
+func TestFailedChecksNeverLookHealthy(t *testing.T) {
+	for _, err := range []error{context.DeadlineExceeded, errors.New("HTTP 500"), errors.New("no route")} {
+		c := leakChecker{
+			resolverIP: func(context.Context) (string, error) { return "1.1.1.1", nil },
+			about:      func(context.Context, string) (geoAnswer, error) { return geoAnswer{Country: "DE"}, nil },
+			overIPv6:   func(context.Context) (geoAnswer, error) { return geoAnswer{}, err },
+		}
+		report := c.check(context.Background())
+		if got, _ := judge(at("DE"), report, "IR", defaultSettings()); got != unknown {
+			t.Fatalf("%v: got %v", err, got)
+		}
+		c.overIPv6 = func(context.Context) (geoAnswer, error) { return geoAnswer{}, nil }
+		if report := c.check(context.Background()); report.IPv6 != "unknown" {
+			t.Fatalf("missing country: %+v", report)
+		}
+	}
+	for _, report := range []leakReport{{}, {Checked: time.Now(), IPv6: "seen", DNSErr: "timeout"}} {
+		if got, _ := judge(at("DE"), report, "IR", defaultSettings()); got != unknown {
+			t.Fatalf("%+v: got %v", report, got)
+		}
 	}
 }

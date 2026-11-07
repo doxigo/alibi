@@ -233,7 +233,7 @@ func (s snapshot) home() string {
 }
 
 func (t *trayApp) judgeNow(s snapshot) (verdict, []string) {
-	if !s.looked {
+	if !s.looked || s.lookErr != nil {
 		return unknown, nil
 	}
 	return judge(s.place, s.leaks, s.home(), s.settings)
@@ -391,16 +391,18 @@ func (t *trayApp) statusLines(s snapshot) []string {
 	case s.leaks.IPv6 == "":
 		lines = append(lines, "IPv6: checking…")
 	case s.leaks.IPv6 == "none":
-		lines = append(lines, "✓  IPv6: none, so nothing to leak")
+		lines = append(lines, "IPv6: no result")
+	case s.leaks.IPv6 == "unknown":
+		lines = append(lines, "IPv6: couldn't check; routing is unknown")
 	case s.leaks.IPv6At.Country == s.place.Country:
-		lines = append(lines, "✓  IPv6 comes out with the VPN")
+		lines = append(lines, "IPv6 country matches; this does not prove VPN routing")
 	default:
 		lines = append(lines, "✗  IPv6 comes out in "+describe(s.leaks.IPv6At))
 	}
 	switch {
 	case s.leaks.Checked.IsZero():
 		lines = append(lines, "DNS: checking…")
-	case s.leaks.DNS.IP == "":
+	case s.leaks.DNS.IP == "" || s.leaks.DNSErr != "":
 		lines = append(lines, "DNS: couldn't check")
 	case home != "" && s.leaks.DNS.Country == home && s.place.Country != home:
 		lines = append(lines, "✗  DNS goes through "+describe(s.leaks.DNS))

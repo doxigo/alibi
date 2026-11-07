@@ -900,3 +900,20 @@ func TestRestoreHome(t *testing.T) {
 		t.Errorf("undid a zone set since: restored %v, Windows on %s", restored, f.zoneNow)
 	}
 }
+
+func TestDoesNotChangeWindowsWithoutRecoveryState(t *testing.T) {
+	g, f := newHomeAgent(t)
+	g.homeFile = t.TempDir()
+	g.reassert()
+	if len(f.calls) != 0 || f.zoneNow != home.Zone || f.regionNow != home.Region {
+		t.Fatalf("changed without recovery state: %+v", f)
+	}
+	if g.homeLocked().Pending != nil {
+		t.Fatal("failed intent remained in memory")
+	}
+	g.homeFile = filepath.Join(t.TempDir(), "home.json")
+	g.reassert()
+	if f.zoneNow != tajik.Zone {
+		t.Fatalf("did not retry after storage recovered: %+v", f)
+	}
+}

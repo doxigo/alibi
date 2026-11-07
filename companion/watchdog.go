@@ -70,9 +70,10 @@ func saveSettings(path string, s settings) error {
 // leakReport is where the computer's traffic comes out, besides the connection itself.
 type leakReport struct {
 	Checked time.Time
-	// IPv6: "" not checked, "none" no IPv6, otherwise where it comes out.
-	IPv6   string
-	IPv6At geoAnswer
+	// IPv6: "" not checked, "unknown" failed, otherwise where it comes out.
+	IPv6    string
+	IPv6At  geoAnswer
+	IPv6Err string
 	// The DNS resolver the computer's lookups reach, as the internet sees it.
 	DNS    geoAnswer
 	DNSErr string
@@ -144,7 +145,9 @@ func (c leakChecker) check(ctx context.Context) leakReport {
 		r.DNS = at
 	}
 	if at, err := c.overIPv6(ctx); err != nil {
-		r.IPv6 = "none" // no route over IPv6: nothing can leak there
+		r.IPv6, r.IPv6Err = "unknown", err.Error()
+	} else if at.Country == "" {
+		r.IPv6, r.IPv6Err = "unknown", "No country in the IPv6 lookup"
 	} else {
 		r.IPv6, r.IPv6At = "seen", at
 	}
@@ -188,6 +191,9 @@ func judge(place cover, leaks leakReport, home string, s settings) (verdict, []s
 	}
 	if len(problems) > 0 {
 		return wrong, problems
+	}
+	if leaks.IPv6 == "" || leaks.IPv6 == "unknown" || leaks.DNSErr != "" || leaks.Checked.IsZero() {
+		return unknown, nil
 	}
 	return fine, nil
 }
