@@ -69,8 +69,8 @@ execFileSync('node', ['--no-warnings', '--input-type=module', '-e', `
   s({ configuration: 'ipAddress', timezone: 'Europe/Oslo', locale: 'nb-NO' })
   assert.equal(Date, native)
   assert.equal(navigator.language, 'nb-NO')
-  s({ configuration: 'oslo', timezone: 'Europe/Oslo' })
-  assert.notEqual(Date, native)
+  assert.equal(s({ configuration: 'oslo', timezone: 'Europe/Oslo' }).state, 'reload-required')
+  assert.equal(Date, native, 'changing an already patched realm requires a reload')
 `], { stdio: 'inherit', env: { ...process.env, TZ: 'Europe/Oslo' } })
 console.log('ok IP cover leaves a matching zone live')
 

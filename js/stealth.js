@@ -11,6 +11,9 @@ export default function stealth(config) {
   // worker can't be covered and already shows Cloudflare the real browser. Patching the frame would hide
   // nothing, so it is left alone. `origin` also matches its about:blank and blob: children.
   if (globalThis.origin === 'https://challenges.cloudflare.com') return
+  const marker = Symbol.for('alibi.stealth')
+  const key = JSON.stringify([config.configuration, config.timezone, config.locale, config.lat, config.lon, !!config.relay])
+  if (globalThis[marker]) return { state: globalThis[marker].key === key ? 'applied' : 'reload-required', early: globalThis[marker].early }
   let { timezone, locale, lat, lon } = config
   // A bad zone or locale would make every Intl call on the page throw; drop it instead.
   try {
@@ -29,7 +32,8 @@ export default function stealth(config) {
   // Zones compare as the browser names them: a system it calls Asia/Calcutta is on Asia/Kolkata.
   if (config.configuration === 'ipAddress' && timezone &&
     new Intl.DateTimeFormat('en-US', { timeZone: timezone }).resolvedOptions().timeZone === Intl.DateTimeFormat().resolvedOptions().timeZone) timezone = null
-  const covered = !!(timezone || locale || lat || lon)
+  const located = Number.isFinite(lat) && Number.isFinite(lon) && Math.abs(lat) <= 90 && Math.abs(lon) <= 180
+  const covered = !!(timezone || locale || located)
   if (!covered && !config.relay) return // e.g. a site set to its real location
   const cover = { timezone, locale, lat, lon }
   // The cover's locale wherever the browser would use its own: no locales at all, or an empty list,
@@ -60,6 +64,7 @@ export default function stealth(config) {
 
   // Patch one JavaScript world: this page, a fresh iframe or popup window, or a worker.
   const patch = (realm) => {
+    if (realm[marker]) return
     const { Intl, Date, Object } = realm
     hook(realm.Function.prototype, 'toString', (f, fn, args) => Reflect.apply(f, natives.get(fn) ?? fn, args))
 
@@ -201,19 +206,17 @@ export default function stealth(config) {
       realm.Date = FakeDate
     }
 
-    if ((lat || lon) && realm.Geolocation) {
+    if (located && realm.Geolocation) {
       const coords = {
-        latitude: +lat || 0, longitude: +lon || 0, accuracy: 20,
+        latitude: lat, longitude: lon, accuracy: 20,
         altitude: null, altitudeAccuracy: null, heading: null, speed: null,
       }
       // The real request still runs, so the permission prompt behaves normally;
       // the page only ever sees the spoofed coordinates.
-      const spoofPosition = (pos) => {
-        const define = (obj, key, desc) => Object.defineProperty(obj, key, { ...desc, configurable: true })
-        for (const k in coords) define(pos.coords, k, { get: () => coords[k] })
-        define(pos.coords, 'toJSON', { value: () => ({ ...coords }) })
-        define(pos, 'toJSON', { value: () => ({ timestamp: pos.timestamp, coords: { ...coords } }) })
-        return pos
+      const spoofPosition = ({ timestamp }) => {
+        const position = { timestamp, coords: { ...coords, toJSON: () => ({ ...coords }) } }
+        position.toJSON = () => ({ timestamp, coords: { ...coords } })
+        return position
       }
       for (const name of ['getCurrentPosition', 'watchPosition']) {
         hook(realm.Geolocation.prototype, name, (f, geo, [success, ...rest]) =>
@@ -268,6 +271,17 @@ export default function stealth(config) {
     // ponytail: a module worker's own imports evaluate before its body, so they run unpatched.
     // Workers have no WebRTC, so a seal alone leaves them be.
     const copies = new Map()
+    if (covered && realm.URL?.revokeObjectURL) {
+      hook(realm.URL, 'revokeObjectURL', (f, self, [value]) => {
+        const url = String(value)
+        const copy = copies.get(url)
+        if (copy) {
+          Reflect.apply(f, self, [copy])
+          copies.delete(url)
+        }
+        return Reflect.apply(f, self, [url])
+      })
+    }
     for (const name of covered ? ['Worker', 'SharedWorker'] : []) {
       const Orig = realm[name]
       if (!Orig) continue
@@ -301,7 +315,9 @@ export default function stealth(config) {
         },
       }), Orig)
     }
+    Object.defineProperty(realm, marker, { value: { key, early: !!config.documentStart } })
   }
 
   patch(globalThis)
+  return { state: 'applied', early: !!config.documentStart }
 }

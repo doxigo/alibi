@@ -5,9 +5,9 @@
 // Self-contained: background.js serializes it into the user script.
 // The most specific rule wins, so a rule for example.com also covers shop.example.com.
 // A rule from before sites had a mode of their own keeps All sites' mode.
-export function coverFor(host, { sites = {}, ...everywhere }) {
+export function coverFor(host, { sites = {}, ...everywhere }, now = Date.now()) {
   for (let h = host; h; h = h.slice(h.indexOf('.') + 1 || h.length)) {
-    if (sites[h]) return { useDebuggerApi: everywhere.useDebuggerApi, ...sites[h], site: h }
+    if (Object.hasOwn(sites, h) && (!sites[h].expiresAt || sites[h].expiresAt > now)) return { useDebuggerApi: everywhere.useDebuggerApi, ...sites[h], site: h }
   }
   return everywhere
 }
@@ -34,7 +34,20 @@ export const siteKey = (url) => {
 // A cover's language preferences, most preferred first: 'ja-JP' -> ['ja-JP', 'ja'].
 export const languagesFor = (locale) => [...new Set([locale, locale.split('-')[0]])]
 
-export const isActive = ({ timezone, locale, lat, lon }) => !!(timezone || locale || lat || lon)
+export const hasCoordinates = ({ lat, lon }) => Number.isFinite(lat) && Number.isFinite(lon) && Math.abs(lat) <= 90 && Math.abs(lon) <= 180
+export const isActive = (cover) => !!(cover.timezone || cover.locale || hasCoordinates(cover))
+
+export const coordinates = (lat, lon) => {
+  const number = (value) => value === null || value === undefined || value === '' ? null
+    : typeof value === 'number' || typeof value === 'string' && value.trim() ? Number(value) : NaN
+  const result = { lat: number(lat), lon: number(lon) }
+  if (result.lat === null && result.lon === null) return result
+  if (!hasCoordinates(result)) throw new Error('Enter both coordinates: latitude -90 to 90, longitude -180 to 180.')
+  return result
+}
+
+export const coverKey = (cover) => JSON.stringify([cover.configuration, cover.timezone ?? null, cover.locale ?? null,
+  cover.lat ?? null, cover.lon ?? null, !!cover.useDebuggerApi, !!cover.sealWebRtc])
 
 // What the All sites cover asks of the computer's own clock, for a companion that can keep the system
 // on Alibi's location (Whereabouts on the Mac, Alibi Companion on Windows): its kind, its zone, and the
@@ -70,7 +83,7 @@ export const sameZone = (a, b) => {
 // "Match my IP address": where GeoJS places this connection, as a cover.
 // GeoJS: free, no key, HTTPS, so the lookup can't be read or altered on the way.
 export const ipCover = async () => {
-  const response = await fetch('https://get.geojs.io/v1/ip/geo.json')
+  const response = await fetch('https://get.geojs.io/v1/ip/geo.json', { signal: AbortSignal.timeout(10000), cache: 'no-store', credentials: 'omit', redirect: 'error' })
   if (!response.ok) throw new Error(`GeoJS answered ${response.status}`)
   const ip = await response.json()
   // The country's most likely language, from CLDR: JP -> ja-JP, CH -> de-CH
@@ -83,7 +96,7 @@ export const ipCover = async () => {
 export const checkedCover = ({ timezone, locale, lat, lon }) => {
   if (typeof timezone !== 'string') throw new Error('No time zone')
   new Intl.DateTimeFormat('en-US', { timeZone: timezone })
-  return { timezone, locale: new Intl.Locale(locale).toString(), lat: Number(lat) || null, lon: Number(lon) || null }
+  return { timezone, locale: new Intl.Locale(locale).toString(), ...coordinates(lat, lon) }
 }
 
 const followingIp = (rule) => rule?.configuration === 'ipAddress'
