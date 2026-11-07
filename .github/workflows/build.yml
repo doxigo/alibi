@@ -59,6 +59,10 @@ jobs:
         id: chrome
         with:
           chrome-version: stable
+      - name: Configure Chrome sandbox helper
+        run: |
+          sudo chown root:root /opt/google/chrome/chrome-sandbox
+          sudo chmod 4755 /opt/google/chrome/chrome-sandbox
       - run: node test/browser.mjs
         env:
           CHROME_PATH: ${{ steps.chrome.outputs.chrome-path }}
