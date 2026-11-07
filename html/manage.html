@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Alibi covers</title>
+  <link rel="icon" href="../img/icon-32.png">
+  <link rel="stylesheet" href="../css/style.css">
+  <link rel="stylesheet" href="../css/manage.css">
+</head>
+<body>
+  <div class="airmail-edge" style="height: 6px" aria-hidden="true"></div>
+  <main class="manager">
+    <header class="manager-header"><a href="info.html"><img src="../img/logo.svg" alt="Alibi guide" width="92"></a><a href="info.html">Guide</a></header>
+    <h1>Your covers</h1>
+    <p class="intro">Choose what each site sees. Saved settings take effect after application or a tab reload.</p>
+    <p id="notice" role="status" tabindex="-1" hidden></p>
+    <div class="manager-layout">
+      <aside aria-label="Site rules">
+        <label for="search" class="field-label">Find a site</label>
+        <input id="search" class="address-line" type="search" placeholder="Search your rules">
+        <nav id="rules" aria-label="Choose a cover"></nav>
+        <form id="addRule" class="stack">
+          <label for="newSite" class="field-label">New site</label>
+          <input id="newSite" class="address-line" required placeholder="example.com" autocomplete="off">
+          <button class="ink-button" type="submit">Add site</button>
+        </form>
+      </aside>
+      <div class="workspace">
+        <section aria-labelledby="editorTitle">
+          <h2 id="editorTitle">All sites</h2>
+          <p id="scopeNote">Used wherever no site rule applies.</p>
+          <form id="editor" class="stack">
+            <label for="preset" class="field-label">Start from a place</label>
+            <select id="preset" class="address-line"><option value="">Keep current values</option><option value="browserDefault">Off (real location)</option><option value="ipAddress">Match my IP address</option></select>
+            <div class="fields">
+              <label>Time zone<input id="timezone" class="address-line" placeholder="Asia/Tokyo" spellcheck="false"></label>
+              <label>Locale<input id="locale" class="address-line" placeholder="ja-JP" spellcheck="false"></label>
+              <label>Latitude<input id="lat" class="address-line" inputmode="decimal" placeholder="35.6762"></label>
+              <label>Longitude<input id="lon" class="address-line" inputmode="decimal" placeholder="139.6503"></label>
+              <label>Mode<select id="mode" class="address-line"><option value="stealth">Stealth</option><option value="deep">Deep</option></select></label>
+              <label>Expiry<select id="expiry" class="address-line"><option value="keep">Keep current expiry</option><option value="0">No expiry</option><option value="60">In one hour</option><option value="1440">In 24 hours</option></select></label>
+            </div>
+            <label><input id="seal" type="checkbox"> Seal WebRTC</label>
+            <p id="expiryNote">Temporary site rules are removed at expiry. The next matching rule or All sites then applies. Stealth tabs need a reload.</p>
+            <div class="actions"><button class="ink-button" type="submit">Save cover</button><button id="removeRule" class="link-button" type="button" hidden>Remove site rule</button></div>
+          </form>
+        </section>
+        <section aria-labelledby="profilesTitle">
+          <h2 id="profilesTitle">Saved profiles</h2>
+          <p>Keep a named copy of these values and reuse it on any site.</p>
+          <div class="actions"><label class="grow">Profile<select id="profiles" class="address-line"><option value="">Choose a profile</option></select></label><button id="loadProfile" class="ink-button" type="button">Load</button><button id="removeProfile" class="link-button" type="button">Delete profile</button></div>
+          <form id="saveProfile" class="actions"><label class="grow">Profile name<input id="profileName" class="address-line" required maxlength="80" placeholder="My work cover"></label><button class="ink-button" type="submit">Save profile</button></form>
+        </section>
+        <section aria-labelledby="checksTitle">
+          <h2 id="checksTitle">Check an open tab</h2>
+          <label for="tabs" class="field-label">Tab</label><select id="tabs" class="address-line"></select>
+          <p id="appliedStatus" role="status">Choose a website tab to see its application status.</p>
+          <p id="ipStatus"></p>
+          <div class="actions"><button id="checkTab" class="ink-button" type="button">Run diagnostics</button><button id="reloadTab" class="link-button" type="button">Reload this tab</button></div>
+          <p class="small">Diagnostics send a test request to httpbingo.org and a STUN query to Google's server. They receive your connection address. No page contents are sent. Location is checked only if already permitted. Site policies may block a check.</p>
+          <div class="results-wrap"><table id="results" hidden><caption>Requested and observed values. A match does not prove anonymity.</caption><thead><tr><th scope="col">Surface</th><th scope="col">Requested</th><th scope="col">Observed</th></tr></thead><tbody></tbody></table></div>
+        </section>
+        <section aria-labelledby="backupTitle">
+          <h2 id="backupTitle">Backup</h2><p>Export settings to a local JSON file. Import merges rules and profiles, replacing matching names and All sites settings. Backups include your site names and coordinates.</p>
+          <div class="actions"><button id="export" class="ink-button" type="button">Export settings</button><button id="import" class="ink-button" type="button">Import and merge</button><input id="importFile" type="file" accept=".json,application/json" hidden></div>
+        </section>
+      </div>
+    </div>
+  </main>
+  <script type="module" src="../js/manage.js"></script>
+</body>
+</html>

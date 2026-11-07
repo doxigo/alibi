@@ -1,6 +1,6 @@
-import { detachDebugger } from './debugger.js'
+import { lookupIp, saveSettings, SETTINGS_KEYS } from './settings.js'
 import locationsConfigurations from './locationsConfigurations.js'
-import { coverFor, ipCover, sameZone, siteKey, userScriptsAvailable, userScriptsPermitted } from './sites.js'
+import { coverFor, sameZone, siteKey, userScriptsAvailable, userScriptsPermitted } from './sites.js'
 
 const $ = (selector) => document.querySelector(selector)
 
@@ -55,7 +55,7 @@ Object.entries(locationsConfigurations).forEach(([key, location]) => {
 // From then on background.js keeps that cover following the connection.
 let ipRequest = null
 const fetchIpCover = () =>
-  (ipRequest ??= ipCover().catch((error) => {
+  (ipRequest ??= lookupIp().catch((error) => {
     ipRequest = null
     throw error
   }))
@@ -107,7 +107,7 @@ let ruleKey = siteKey(activeTab?.url ?? '') // null when the tab isn't a website
 const siteRule = () => (ruleKey ? stored.sites?.[ruleKey] : undefined)
 
 // The storage change that sets `changes` on the record being edited: All sites, or this site's rule.
-const edit = (changes) => (scope === 'site' ? { sites: { ...stored.sites, [ruleKey]: { ...siteRule(), ...changes } } } : changes)
+const edit = (changes) => ({ command: 'cover', site: scope === 'site' ? ruleKey : null, changes })
 
 // "52,52" and "52.52" both mean 52.52; anything else is NaN. Empty is null.
 const parseCoordinate = (value) => {
@@ -119,14 +119,14 @@ const readFields = () => ({
   configuration: configurationSelect.value,
   timezone: timeZoneInput.value.trim() || null,
   locale: localeInput.value.trim() || null,
-  lat: parseCoordinate(latitudeInput.value) || null,
-  lon: parseCoordinate(longitudeInput.value) || null,
+  lat: parseCoordinate(latitudeInput.value),
+  lon: parseCoordinate(longitudeInput.value),
 })
 const setInputs = (timezone, locale, lat, lon) => {
   timeZoneInput.value = timezone || ''
   localeInput.value = locale || ''
-  latitudeInput.value = lat || ''
-  longitudeInput.value = lon || ''
+  latitudeInput.value = lat ?? ''
+  longitudeInput.value = lon ?? ''
 }
 const clearInputs = () => setInputs('', '', '', '')
 const writeFields = (record = {}) => {
@@ -177,13 +177,13 @@ const describe = (cover) => {
   const who = cover.site ?? 'Sites'
   const sees = cover.site ? 'sees' : 'see'
 
-  if (!(zone || locale || cover.lat || cover.lon)) {
+  if (!(zone || locale || cover.lat != null && cover.lon != null)) {
     return {
       muted: true, zone: realTimeZone, city: cityFromZone(realTimeZone), region: 'Real location',
       lead: `${who} ${sees} your real location`, extras: [navigator.language],
     }
   }
-  const lead = `${who} ${sees} you in`
+  const lead = cover.site ? `${cover.site} configured for` : 'Configured for'
   // A companion holds the computer's own clock on this zone too (background.js, systemHeld).
   const system = zone && sameZone(zone, stored.systemZone) ? onSystem : null
   if (preset) {
@@ -191,7 +191,7 @@ const describe = (cover) => {
     return { zone: zone ?? realTimeZone, city, region: country || city, locale, lead, extras: [locale, system].filter(Boolean) }
   }
   const country = (locale && countryFromLocale(locale)) || (zone ? zone.split('/')[0] : null)
-  const coords = [cover.lat, cover.lon].filter(Boolean).join(', ')
+  const coords = [cover.lat, cover.lon].filter((value) => value != null).join(', ')
   return {
     zone: zone ?? realTimeZone, city: zone ? cityFromZone(zone) : 'Custom cover', region: country ?? 'Custom', locale, lead,
     extras: [locale, coords, system].filter(Boolean),
@@ -265,6 +265,7 @@ const renderScope = () => {
 }
 
 const selectScope = (next) => {
+  flushSave()
   scope = next
   writeFields(scope === 'site' ? siteRule() : stored)
   const record = scope === 'site' && siteRule() ? coverFor(ruleKey, stored) : stored
@@ -320,6 +321,7 @@ const problems = () => {
   if (locale && !isLocale(locale)) found.push([localeInput, `“${locale}” isn’t a locale. Try a tag like de-DE.`])
   if (lat !== null && !(Math.abs(lat) <= 90)) found.push([latitudeInput, 'Latitude runs from -90 to 90.'])
   if (lon !== null && !(Math.abs(lon) <= 180)) found.push([longitudeInput, 'Longitude runs from -180 to 180.'])
+  if ((lat === null) !== (lon === null)) found.push([lat === null ? latitudeInput : longitudeInput, 'Enter both coordinates, or leave both empty.'])
   return found
 }
 
@@ -339,11 +341,16 @@ const markPending = (pending) => {
   reloadLabel.textContent = pending ? 'Reload to apply' : 'Reload tab'
 }
 
-const persist = async (changes) => {
-  Object.assign(stored, changes)
-  detachDebugger()
-  await chrome.storage.local.set(changes)
-  markPending(true)
+const persist = async (action) => {
+  try {
+    stored = { ...stored, ...await saveSettings(action) }
+    markPending(true)
+    refreshStatus()
+  } catch (error) {
+    fieldError.textContent = error.message
+    fieldError.hidden = false
+    updateHint()
+  }
 }
 
 const saveToStorage = () => {
@@ -355,6 +362,8 @@ const saveToStorage = () => {
 
 const handleConfigurationChange = async () => {
   const configuration = configurationSelect.value
+  const requestedScope = scope
+  const requestedSite = ruleKey
   ipError.hidden = true
   updateHint()
 
@@ -365,9 +374,10 @@ const handleConfigurationChange = async () => {
     renderStrike({ lead: 'Looking up your IP address…', meta: 'Asking GeoJS' })
     try {
       const ip = await fetchIpCover()
-      if (configurationSelect.value !== 'ipAddress') return // the user moved on while we waited
+      if (configurationSelect.value !== 'ipAddress' || scope !== requestedScope || ruleKey !== requestedSite) return // the user moved on while we waited
       setInputs(ip.timezone, ip.locale, ip.lat, ip.lon)
     } catch {
+      if (scope !== requestedScope || ruleKey !== requestedSite || configurationSelect.value !== 'ipAddress') return
       configurationSelect.value = (scope === 'site' ? siteRule() : stored)?.configuration || 'browserDefault'
       renderStrike()
       ipError.hidden = false
@@ -382,28 +392,31 @@ const handleConfigurationChange = async () => {
   saveToStorage()
 }
 
-// Debounce function to limit frequent save calls
-const debounce = (func, delay) => {
-  let timeoutId
-  return (...args) => {
-    clearTimeout(timeoutId)
-    timeoutId = setTimeout(() => func(...args), delay)
-  }
+let saveTimer
+let queuedSave
+const flushSave = () => {
+  clearTimeout(saveTimer)
+  const action = queuedSave
+  queuedSave = null
+  return action ? persist(action) : Promise.resolve()
 }
-
-const debouncedSaveToStorage = debounce(saveToStorage, 300)
-
 const handleInputChange = () => {
   configurationSelect.value = 'custom'
-  validate()
+  clearTimeout(saveTimer)
+  queuedSave = null
+  const valid = validate()
   renderStrike()
-  debouncedSaveToStorage()
+  if (!valid) return
+  queuedSave = edit(readFields())
+  saveTimer = setTimeout(flushSave, 300)
 }
+window.addEventListener('pagehide', flushSave)
 
 // --- Wiring ----------------------------------------------------------------------------------
 
-reloadButton.addEventListener('click', () => {
-  chrome.tabs.reload()
+reloadButton.addEventListener('click', async () => {
+  await flushSave()
+  await chrome.tabs.reload(activeTab.id)
   markPending(false)
 })
 $('#infoButton').addEventListener('click', () => chrome.tabs.create({ url: 'html/info.html' }))
@@ -432,13 +445,12 @@ for (const tab of [scopeAllTab, scopeSiteTab]) {
 $('#addSiteRule').addEventListener('click', async () => {
   // Its own WebRTC seal starts off: it's one added to Chrome's, never taken from it.
   const { configuration, timezone, locale, lat, lon, useDebuggerApi } = stored
-  await persist({ sites: { ...stored.sites, [ruleKey]: { configuration, timezone, locale, lat, lon, useDebuggerApi } } })
+  await persist({ command: 'cover', site: ruleKey, changes: { configuration, timezone, locale, lat, lon, useDebuggerApi } })
   selectScope('site')
   configurationSelect.focus()
 })
 removeSiteRuleButton.addEventListener('click', async () => {
-  const { [ruleKey]: _removed, ...sites } = stored.sites ?? {}
-  await persist({ sites })
+  await persist({ command: 'removeSite', site: ruleKey })
   selectScope('site')
   $('#addSiteRule').focus()
 })
@@ -454,9 +466,7 @@ for (const input of [stealthInput, deepInput]) {
 for (const input of [openInput, sealedInput]) {
   input.addEventListener('change', () => {
     const changes = edit({ sealWebRtc: sealedInput.checked })
-    Object.assign(stored, changes)
-    renderWebRtc()
-    chrome.storage.local.set(changes)
+    persist(changes).then(renderWebRtc)
     if (scope === 'site') markPending(true)
   })
 }
@@ -464,11 +474,21 @@ $('#userScriptsLink').addEventListener('click', () =>
   chrome.tabs.create({ url: `chrome://extensions/?id=${chrome.runtime.id}` })
 )
 
+const refreshStatus = async () => {
+  if (!activeTab?.id) return
+  const result = await chrome.runtime.sendMessage({ status: activeTab.id }).catch(() => null)
+  const status = result?.status ?? { state: 'configured', detail: result?.error ?? 'Reload to check this tab.' }
+  const labels = { applied: 'Applied', configured: 'Configured', failed: 'Failed', 'reload-required': 'Reload required', off: 'Off' }
+  modeNote.textContent = status.state === 'failed' ? 'Failed. Open Manage for details.' : `${labels[status.state] ?? 'Configured'}. ${status.mode ?? (deepInput.checked ? 'Deep' : 'Stealth')} mode.`
+  modeNote.title = status.detail
+  markPending(status.state === 'reload-required' || status.state === 'configured')
+}
+
 // --- Start -------------------------------------------------------------------------------------
 
 // A companion that has started following Alibi's location since hears about the place now (background.js).
 chrome.runtime.sendMessage({ checkCompanion: true }).catch(() => {})
-stored = await chrome.storage.local.get(['configuration', 'timezone', 'locale', 'lat', 'lon', 'useDebuggerApi', 'sites', 'systemZone', 'sealWebRtc'])
+stored = await chrome.storage.local.get([...SETTINGS_KEYS, 'systemZone'])
 // On shop.example.com, an existing rule for example.com is the one to show and edit.
 const matched = coverFor(tabHost, stored).site
 if (matched) {
@@ -479,9 +499,27 @@ selectScope(scope)
 // The saved state is drawn without motion; only changes made from here on animate (tailwind.css).
 requestAnimationFrame(() => requestAnimationFrame(() => document.body.classList.add('settled')))
 setInterval(updateClock, 1000)
-// The companion says it holds the system's clock a moment after a change: show it when it does.
-chrome.storage.onChanged.addListener(({ systemZone }) => {
-  if (!systemZone) return
-  stored.systemZone = systemZone.newValue
-  renderStrike()
+$('#manageButton').addEventListener('click', async () => {
+  await flushSave()
+  chrome.tabs.create({ url: chrome.runtime.getURL(`html/manage.html?tab=${activeTab?.id ?? ''}`) })
 })
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === 'session') return refreshStatus()
+  if (area !== 'local') return
+  for (const [key, change] of Object.entries(changes)) {
+    if (change.newValue === undefined) delete stored[key]
+    else stored[key] = change.newValue
+  }
+  if (!queuedSave && !coverFields.contains(document.activeElement)) {
+    writeFields(scope === 'site' ? siteRule() : stored)
+    const record = scope === 'site' && siteRule() ? coverFor(ruleKey, stored) : stored
+    ;(record.useDebuggerApi ? deepInput : stealthInput).checked = true
+    ;(stored.sealWebRtc || record.sealWebRtc ? sealedInput : openInput).checked = true
+    updateHint()
+  }
+  renderScope()
+  renderStrike()
+  renderWebRtc()
+  refreshStatus()
+})
+refreshStatus()

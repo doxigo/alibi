@@ -1,11 +1,15 @@
-import { applyDebugger, startChild } from './debugger.js'
+import { applyDebugger, forgetChild, forgetDebugger, startChild } from './debugger.js'
 import {
-  checkedCover, coverFor, followIp, followsIp, holdsPlace, ipCover, languagesFor, pageCover, sameZone, siteKey, systemCover,
+  checkedCover, coverFor, coverKey, followsIp, holdsPlace, ipCover, isActive, languagesFor, pageCover, sameZone, siteKey, systemCover,
   userScriptsAvailable,
 } from './sites.js'
 import stealth from './stealth.js'
+import { SETTINGS_KEYS, settingsWriter } from './settings.js'
 
-const KEYS = ['useDebuggerApi', 'sealWebRtc', 'configuration', 'timezone', 'locale', 'lat', 'lon', 'sites']
+const KEYS = SETTINGS_KEYS
+const writeSettings = settingsWriter(chrome.storage.local)
+const report = (tabId, status) => chrome.storage.session.set({ [`protection-${tabId}`]: { ...status, updated: Date.now() } })
+const failed = (tabId, error) => report(tabId, { state: 'failed', detail: String(error.message ?? error).slice(0, 240) })
 // Kept as a promise so a warm worker answers instantly and a cold one still waits for storage.
 let settings = chrome.storage.local.get(KEYS)
 
@@ -17,25 +21,31 @@ const registerUserScript = async () => {
   const current = await settings
   const everywhere = pageCover(current, '')
   const sites = Object.fromEntries(Object.keys(current.sites ?? {}).map((site) => [site, pageCover(current, site)]))
-  await chrome.userScripts.unregister()
-  if (!everywhere && !Object.values(sites).some(Boolean)) return false
+  const [existing] = await chrome.userScripts.getScripts({ ids: ['stealth'] })
+  if (!everywhere && !Object.values(sites).some(Boolean)) {
+    if (existing) await chrome.userScripts.unregister({ ids: ['stealth'] })
+    return false
+  }
   // A site whose pages need nothing keeps an empty entry, so it doesn't take its parent domain's instead.
-  for (const site in sites) sites[site] ??= {}
+  for (const site in sites) sites[site] = { ...sites[site], expiresAt: current.sites[site].expiresAt }
   const topHost = `(() => {
     const origins = location.ancestorOrigins
     try { return new URL(origins?.length ? origins[origins.length - 1] : location.href).hostname } catch { return '' }
   })()`
-  await chrome.userScripts.register([{
+  const script = {
     id: 'stealth',
     matches: ['<all_urls>'],
     allFrames: true,
     runAt: 'document_start',
     world: 'MAIN',
-    js: [{ code: `(${stealth})((${coverFor})(${topHost}, ${JSON.stringify({ ...everywhere, sites })}))` }],
-  }])
+    js: [{ code: `(${stealth})({...(${coverFor})(${topHost}, JSON.parse(${JSON.stringify(JSON.stringify({ ...everywhere, sites }))})), documentStart: true})` }],
+  }
+  if (existing) {
+    if (existing.js?.[0]?.code !== script.js[0].code) await chrome.userScripts.update([script])
+  } else await chrome.userScripts.register([script])
   return true
 }
-// Chained so overlapping syncs never race unregister() against register().
+// Serialize registration updates without removing the working script.
 let userScriptReady = registerUserScript().catch(() => false)
 const syncUserScript = () =>
   (userScriptReady = userScriptReady.then(registerUserScript).catch((e) => (console.error(e), false)))
@@ -57,6 +67,7 @@ const syncHeaderRules = async () => {
   const rules = []
   if (locale) rules.push({ priority: 1, action: headerAction(locale), condition: { resourceTypes: ALL_TYPES } })
   for (const [site, cover] of Object.entries(sites)) {
+    if (cover.expiresAt && cover.expiresAt <= Date.now()) continue
     const priority = 1 + site.split('.').length
     const action = headerAction(cover.locale)
     rules.push(
@@ -114,8 +125,19 @@ let posted = null // the cover last sent over `port`, as JSON
 let probing = null // a timer while a port opened only to see whether a companion answers
 const applyIp = async (ip) => {
   // Read after the lookup, so a change made in the popup meanwhile isn't overwritten.
-  const changes = followIp(await chrome.storage.local.get(['configuration', 'timezone', 'locale', 'lat', 'lon', 'sites']), ip)
-  if (Object.keys(changes).length) await chrome.storage.local.set(changes)
+  await writeSettings({ command: 'ip', cover: ip })
+  await chrome.storage.local.set({ ipStatus: { lastSuccess: Date.now(), source: whereaboutsLive ? 'companion' : 'GeoJS' } })
+}
+const lookupIp = async () => {
+  try {
+    const cover = await ipCover()
+    await chrome.storage.local.set({ ipStatus: { lastSuccess: Date.now(), source: 'GeoJS' } })
+    return cover
+  } catch (error) {
+    const { ipStatus } = await chrome.storage.local.get('ipStatus')
+    await chrome.storage.local.set({ ipStatus: { ...ipStatus, error: error.message, checked: Date.now() } })
+    throw error
+  }
 }
 const post = (message) => {
   try {
@@ -211,13 +233,14 @@ const syncIpAlarm = async () => {
 }
 const refreshIpCovers = async () => {
   if (!(await syncIpAlarm()) || whereaboutsLive) return
-  const ip = await ipCover().catch(() => null) // offline, or GeoJS down: keep the last place
+  const ip = await lookupIp().catch(() => null)
   if (ip && !whereaboutsLive) await applyIp(ip) // Whereabouts may have answered meanwhile
 }
 syncIpAlarm() // alarms can be lost on update or restart
 chrome.alarms.onAlarm.addListener(({ name }) => {
   if (name === IP_ALARM) refreshIpCovers()
   if (name === COMPANION_ALARM) syncIpAlarm()
+  if (name === 'expireCovers') writeSettings({ command: 'expire' }).then(scheduleExpiry).catch(console.error)
 })
 chrome.runtime.onStartup.addListener(() => {
   refreshIpCovers() // Chrome may have started on another network
@@ -226,22 +249,52 @@ chrome.runtime.onStartup.addListener(() => {
 
 // The popup opening asks again too, with a place for all sites and no companion known to take it: its
 // switch for following Alibi may have been turned on since, with no host running to say hello again.
-chrome.runtime.onMessage.addListener((message) => {
-  if (!message?.checkCompanion) return
-  chrome.storage.local.get(['configuration', 'timezone', 'companion'])
-    .then((stored) => stored.companion !== true && holdsPlace(stored) && probeCompanion())
+const scheduleExpiry = async () => {
+  const { sites = {} } = await settings
+  const deadlines = Object.values(sites).map((rule) => rule.expiresAt).filter(Number.isFinite)
+  await chrome.alarms.clear('expireCovers')
+  if (deadlines.length) await chrome.alarms.create('expireCovers', { when: Math.max(Date.now() + 100, Math.min(...deadlines)) })
+}
+writeSettings({ command: 'expire' }).then(scheduleExpiry).catch(console.error)
+
+chrome.runtime.onMessage.addListener((message, sender, respond) => {
+  if (sender.id !== chrome.runtime.id || !sender.url?.startsWith(chrome.runtime.getURL('html/'))) return
+  if (message?.lookupIp) {
+    lookupIp().then((cover) => respond({ ok: true, cover }), (error) => respond({ ok: false, error: error.message }))
+    return true
+  }
+  if (message?.settings) {
+    if (!['cover', 'removeSite', 'profile', 'removeProfile', 'import'].includes(message.settings.command)) {
+      respond({ ok: false, error: 'Unknown settings request.' })
+      return
+    }
+    writeSettings(message.settings).then((stored) => respond({ ok: true, stored }), (error) => respond({ ok: false, error: error.message }))
+    return true
+  }
+  if (Number.isInteger(message?.status)) {
+    const tabId = message.status
+    Promise.all([chrome.storage.session.get(`protection-${tabId}`), settings, chrome.tabs.get(tabId), chrome.storage.local.get('ipStatus')])
+      .then(([saved, stored, tab, ip]) => respond({ ok: true, status: saved[`protection-${tabId}`] ?? { state: 'configured', detail: 'Reload this tab to apply and check its cover.' }, cover: coverFor(siteKey(tab.url ?? '') ?? '', stored), ...ip }),
+        (error) => respond({ ok: false, error: error.message }))
+    return true
+  }
+  if (message?.checkCompanion) {
+    chrome.storage.local.get(['configuration', 'timezone', 'companion'])
+      .then((stored) => stored.companion !== true && holdsPlace(stored) && probeCompanion())
+  }
 })
 
-// What only says how the companion is doing changes no cover, so no cover is synced again for it. Chrome's
-// WebRTC seal does: a site's own seal goes into its pages only while Chrome's is off.
-const BOOKKEEPING = ['companion', 'systemZone']
-chrome.storage.onChanged.addListener((changes) => {
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== 'local') return
   if (changes.sealWebRtc) syncWebRtc().catch(console.error)
-  if (Object.keys(changes).every((key) => BOOKKEEPING.includes(key))) return
+  if (!Object.keys(changes).some((key) => KEYS.includes(key))) return
+  const before = settings
   settings = chrome.storage.local.get(KEYS)
   syncUserScript()
   syncHeaders()
   syncIpAlarm()
+  scheduleExpiry()
+  Promise.all([before, settings]).then(([old, current]) => reconcileTabs(old, current)).catch(console.error)
   if (changes.configuration || changes.timezone) {
     chrome.storage.local.get(['configuration', 'timezone', 'companion'])
       .then((stored) => stored.companion !== true && holdsPlace(stored) && probeCompanion())
@@ -264,13 +317,31 @@ const deepCover = async (url) => {
   const current = await settings
   const cover = coverFor(siteKey(url ?? '') ?? '', current)
   // A Stealth site: a tab that comes from a Deep one is detached. With no Deep site at all, none is attached.
-  if (!cover.useDebuggerApi) return [current, ...Object.values(current.sites ?? {})].some((rule) => rule.useDebuggerApi) ? {} : null
+  if (!cover.useDebuggerApi) return {}
   // As in Stealth: an IP cover on the Mac's own zone leaves the zone live, whichever name each gives it.
   return followsIp(cover) && sameZone(cover.timezone, Intl.DateTimeFormat().resolvedOptions().timeZone) ? { ...cover, timezone: null } : cover
 }
-const aimTab = async (tabId, url, replacing) => {
-  const cover = await deepCover(url)
-  if (cover) applyDebugger(tabId, cover, replacing)
+const aimTab = async (tabId, url, replacing = false) => {
+  try {
+    const cover = await deepCover(url)
+    const result = await applyDebugger(tabId, cover, replacing)
+    if (result === 'unreachable') return result
+    if (cover.useDebuggerApi) await report(tabId, { state: isActive(cover) ? 'applied' : 'off', mode: 'Deep', key: coverKey(cover),
+      detail: isActive(cover) ? 'Browser overrides applied. Run diagnostics to check what the page observes.' : 'No location cover is configured for this site.' })
+  } catch (error) {
+    await failed(tabId, error)
+  }
+}
+const reconcileTabs = async (old, current) => {
+  for (const tab of await chrome.tabs.query({})) {
+    const host = siteKey(tab.url ?? '')
+    if (!host) continue
+    const previous = coverFor(host, old, 0)
+    const next = coverFor(host, current)
+    if (coverKey(previous) === coverKey(next) && old.sealWebRtc === current.sealWebRtc) continue
+    if (previous.useDebuggerApi && next.useDebuggerApi && !!previous.sealWebRtc === !!next.sealWebRtc && !!old.sealWebRtc === !!current.sealWebRtc) await aimTab(tab.id, tab.url)
+    else await report(tab.id, { state: 'reload-required', detail: "Settings changed. Reload to replace this document's cover." })
+  }
 }
 // The new tab page and other browser pages can't be debugged, so leaving one, Deep could only attach
 // once the site was already loading: its first scripts and cross-site frames would miss the cover.
@@ -288,8 +359,9 @@ const committedBlank = (tabId) =>
 const bounce = async (tabId, url, cover) => {
   bouncing.add(tabId)
   try {
+    const committed = committedBlank(tabId)
     await chrome.tabs.update(tabId, { url: 'about:blank' })
-    await committedBlank(tabId)
+    await committed
     await applyDebugger(tabId, cover, true)
     await chrome.debugger.sendCommand({ tabId }, 'Runtime.evaluate', { expression: `location.replace(${JSON.stringify(url)})` })
   } catch {
@@ -303,39 +375,52 @@ const bounce = async (tabId, url, cover) => {
 chrome.tabs.onCreated.addListener((tab) => aimTab(tab.id, tab.pendingUrl ?? tab.url))
 chrome.webNavigation.onBeforeNavigate.addListener(async ({ tabId, frameId, url }) => {
   if (frameId !== 0 || bouncing.has(tabId)) return
-  const cover = await deepCover(url)
-  if (cover && (await applyDebugger(tabId, cover, true)) === 'unreachable' && /^https?:/.test(url)) bounce(tabId, url, cover)
+  await report(tabId, { state: 'configured', detail: "Applying this page's cover." })
+  if ((await aimTab(tabId, url, true)) === 'unreachable' && /^https?:/.test(url)) bounce(tabId, url, await deepCover(url))
 })
 // Again at commit, for anything that still slipped past. An unchanged cover is a no-op, so this
 // never disturbs a tab that's already right.
 chrome.webNavigation.onCommitted.addListener(({ tabId, frameId, url }) => frameId === 0 && !bouncing.has(tabId) && aimTab(tabId, url))
 // Cross-site iframes and workers wait, paused, for the cover of the page they sit in.
 chrome.debugger.onEvent.addListener((source, method, params) => {
+  if (method === 'Target.detachedFromTarget') forgetChild(source.tabId, params.sessionId)
   if (method !== 'Target.attachedToTarget') return
-  startChild(source, params, async () => (await deepCover((await chrome.tabs.get(source.tabId)).url)) ?? {})
+  startChild(source, params, async () => (await deepCover((await chrome.tabs.get(source.tabId)).url)))
+    .catch((error) => failed(source.tabId, error))
+})
+chrome.debugger.onDetach.addListener(({ tabId }, reason) => {
+  forgetDebugger(tabId)
+  failed(tabId, new Error(`Deep mode detached (${reason}). Reload to apply it again.`))
+})
+chrome.tabs.onRemoved.addListener((tabId) => {
+  forgetDebugger(tabId)
+  chrome.storage.session.remove(`protection-${tabId}`)
 })
 
-// Stealth mode (default): patch each new document's JS globals. No debugger, no banner. A Deep site's
-// pages get only a WebRTC seal of their own here, when they have one.
-// With user scripts allowed, the registered script already ran at document_start. Otherwise inject
-// on commit, which can lose the race against inline <head> scripts when the body arrives instantly.
-chrome.webNavigation.onCommitted.addListener(async ({ tabId, frameId, url }) => {
-  const current = await settings
-  // Frames take the cover of the page they sit in.
-  const topUrl = frameId === 0 ? url : (await chrome.webNavigation.getFrame({ tabId, frameId: 0 }).catch(() => null))?.url
-  const cover = pageCover(current, siteKey(topUrl ?? url) ?? '')
-  if (!cover) return
-  if (userScriptsAvailable()) {
-    if (await userScriptReady) return
-    syncUserScript() // toggle was switched on since the last sync; covers the next page load
-  }
-  chrome.scripting
-    .executeScript({
-      target: { tabId, frameIds: [frameId] },
-      world: 'MAIN',
-      injectImmediately: true,
-      func: stealth,
-      args: [cover],
+// Always check this document, even if a registration completed after it started loading.
+chrome.webNavigation.onCommitted.addListener(async ({ tabId, frameId, url, documentId }) => {
+  try {
+    const current = await settings
+    const topUrl = frameId === 0 ? url : (await chrome.webNavigation.getFrame({ tabId, frameId: 0 }).catch(() => null))?.url
+    const host = siteKey(topUrl ?? url) ?? ''
+    if (!siteKey(topUrl ?? url)) return
+    const effective = coverFor(host, current)
+    const cover = pageCover(current, host)
+    if (effective.useDebuggerApi && !cover) return
+    const results = await chrome.scripting.executeScript({
+      target: documentId ? { tabId, documentIds: [documentId] } : { tabId, frameIds: [frameId] },
+      world: 'MAIN', injectImmediately: true, func: stealth, args: [cover ?? {}],
     })
-    .catch(() => {}) // chrome://, Web Store and other protected pages refuse injection
+    if (frameId === 0 && !effective.useDebuggerApi) {
+      const result = results[0]?.result
+      await report(tabId, { state: result?.state ?? 'off', mode: 'Stealth', key: coverKey(effective),
+        detail: result?.state === 'reload-required' ? 'Reload to replace the previous cover.' : result?.early
+          ? 'Applied at document start. Stealth has worker and frame limits.' : cover
+          ? 'Applied after navigation. Early scripts may have read real values.' : 'No location cover is configured for this site.' })
+    }
+    if (cover && !userScriptsAvailable()) return
+    if (cover && !(await userScriptReady)) syncUserScript()
+  } catch (error) {
+    if (frameId === 0 && /^https?:/.test(url)) failed(tabId, error)
+  }
 })

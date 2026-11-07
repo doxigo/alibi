@@ -17,6 +17,7 @@
       <span class="text-[19px] font-extrabold tracking-[-0.02em]">alibi</span>
     </div>
     <div class="flex items-center gap-1">
+      <button id="manageButton" class="quiet-button" title="Manage covers, profiles and diagnostics">Manage</button>
       <button id="reloadButton" class="quiet-button" data-pending="false">
         <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8"
           stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -164,7 +165,7 @@
       <div class="flex items-center justify-between gap-4">
         <div class="min-w-0">
           <p class="truncate text-[13.5px] font-bold" aria-hidden="true">Mode <span class="font-medium text-ink3">· <span data-scope-name>all sites</span></span></p>
-          <p id="modeNote" class="text-[12.5px] text-ink2"></p>
+          <p id="modeNote" class="text-[12.5px] text-ink2" role="status"></p>
         </div>
         <div class="halves shrink-0">
           <label>
