@@ -81,6 +81,11 @@ try {
   assert.equal(await read(tab.id, 'Intl.DateTimeFormat().resolvedOptions().timeZone'), 'Asia/Tokyo')
   await evaluate(`chrome.tabs.reload(${tab.id})`)
   await waitFor(async () => await read(tab.id, 'Intl.DateTimeFormat().resolvedOptions().timeZone') === 'Europe/Oslo', 'updated Stealth cover')
+  // A policy without blob: in connect-src refuses any read of the blob worker's script.
+  const strictTab = await evaluate(`chrome.tabs.create({url:${JSON.stringify(`${url}?csp`)},active:false})`)
+  const strict = await loaded(strictTab.id)
+  assert.deepEqual([strict.blob.zone, strict.blob.language], ['Europe/Oslo', 'nb-NO'], 'blob worker under connect-src')
+  await evaluate(`chrome.tabs.remove(${strictTab.id})`)
 
   const { targetInfos } = await browser.send('Target.getTargets')
   const target = targetInfos.find((target) => target.type === 'page' && target.url === url)

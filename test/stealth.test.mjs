@@ -139,6 +139,30 @@ execFileSync('node', ['--no-warnings', '--input-type=module', '-e', `
 `], { stdio: 'inherit' })
 console.log('ok workers start as they are where synchronous requests are off')
 
+// A site whose connect-src leaves out blob: refuses any read of a blob URL and reports it to the site, and
+// so does one with synchronous requests off. A blob URL the page made is never read: its worker's copy
+// is built from the Blob, cover first, and goes when the page revokes the URL.
+execFileSync('node', ['--no-warnings', '--input-type=module', '-e', `
+  import assert from 'node:assert/strict'
+  import { resolveObjectURL } from 'node:buffer'
+  const reads = []
+  globalThis.document = { featurePolicy: { allowsFeature: (feature) => feature !== 'sync-xhr' } }
+  globalThis.XMLHttpRequest = class { open(method, url) { reads.push(url) } send() { throw new Error('blocked') } }
+  globalThis.Worker = class { constructor(url) { this.url = url } }
+  const { default: s } = await import(${JSON.stringify(new URL('../js/stealth.js', import.meta.url).href)})
+  s({ timezone: 'Asia/Tokyo' })
+  const url = URL.createObjectURL(new Blob(['postMessage(1)'], { type: 'text/javascript' }))
+  const copy = new Worker(url).url
+  assert.notEqual(copy, url)
+  assert.equal(new Worker(url).url, copy)
+  const source = await resolveObjectURL(copy).text()
+  assert.ok(source.startsWith('(function stealth(') && source.endsWith(');\\npostMessage(1)'), source.slice(-40))
+  assert.deepEqual(reads, [])
+  URL.revokeObjectURL(url)
+  assert.equal(resolveObjectURL(copy), undefined)
+`], { stdio: 'inherit' })
+console.log('ok blob workers the page made are covered unread')
+
 // A fixed cover keeps faking its zone even with the system on it, and whatever a companion says it
 // holds: if the system's zone moves later (another browser, the companion quitting), open tabs don't follow.
 execFileSync('node', ['--no-warnings', '--input-type=module', '-e', `

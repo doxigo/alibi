@@ -52,6 +52,9 @@ export default function stealth(config) {
   // the function it wraps when Function.prototype.toString is asked. Shared by every realm we patch.
   const natives = new WeakMap()
   const disguise = (proxy, orig) => (natives.set(proxy, orig), proxy)
+  // The Blob behind each blob: URL a patched world made, so a worker's copy is built from the Blob itself.
+  // Reading the URL instead is refused, and reported to the site, wherever connect-src leaves out blob:.
+  const blobs = new Map()
   const hook = (obj, name, apply) => {
     obj[name] = disguise(new Proxy(obj[name], { apply }), obj[name])
   }
@@ -264,16 +267,25 @@ export default function stealth(config) {
     }
     if (typeof realm.open === 'function') hook(realm, 'open', (f, self, args) => adopt(Reflect.apply(f, self, args)))
 
-    // Blob workers start from a copy of their script with this same function in front. The script is
-    // read now because pages often revoke the URL right away, and blob workers resolve nothing
+    // Blob workers start from a copy of their script with this same function in front. The copy is
+    // made now because pages often revoke the URL right away, and blob workers resolve nothing
     // relative to themselves, so the move changes nothing. One URL always maps to one copy, so a
     // SharedWorker started twice in a page is still one worker.
     // ponytail: a module worker's own imports evaluate before its body, so they run unpatched.
     // Workers have no WebRTC, so a seal alone leaves them be.
     const copies = new Map()
+    const createURL = realm.URL?.createObjectURL
+    if (covered && createURL) {
+      hook(realm.URL, 'createObjectURL', (f, self, args) => {
+        const url = Reflect.apply(f, self, args)
+        if (args[0] instanceof realm.Blob) blobs.set(url, args[0])
+        return url
+      })
+    }
     if (covered && realm.URL?.revokeObjectURL) {
       hook(realm.URL, 'revokeObjectURL', (f, self, [value]) => {
         const url = String(value)
+        blobs.delete(url)
         const copy = copies.get(url)
         if (copy) {
           Reflect.apply(f, self, [copy])
@@ -288,24 +300,33 @@ export default function stealth(config) {
       realm[name] = disguise(new Proxy(Orig, {
         construct: (target, args, newTarget) => {
           const url = String(args[0])
-          // Two kinds of site would refuse the copy below and report the attempt to the site, so their
-          // worker starts as it is: one on Trusted Types (Google Meet), which hands over a TrustedScriptURL
-          // and refuses a plain URL in its place, and one whose Permissions-Policy turns off synchronous
-          // requests (Cloudflare's dashboard), which refuses the read.
+          // A site on Trusted Types (Google Meet) hands over a TrustedScriptURL and would refuse the copy's
+          // plain URL in its place, reporting the attempt to the site, so its worker starts as it is.
           // ponytail: those workers keep the real zone in Stealth; a Trusted Types policy of Alibi's own could
-          // cover the first kind where the site allows one. Deep covers both already.
-          const refused = realm.trustedTypes?.isScriptURL(args[0]) || realm.document?.featurePolicy?.allowsFeature('sync-xhr') === false
-          if (!url.startsWith('blob:') || refused) return Reflect.construct(target, args, newTarget)
+          // cover them where the site allows one. Deep covers them already.
+          if (!url.startsWith('blob:') || realm.trustedTypes?.isScriptURL(args[0])) return Reflect.construct(target, args, newTarget)
           try {
             let copy = copies.get(url)
             if (!copy) {
-              const xhr = new realm.XMLHttpRequest()
-              xhr.open('GET', url, false)
-              xhr.send()
-              const source = xhr.responseText
-              const strict = source.match(/^\s*(['"])use strict\1;?/)?.[0] ?? '' // must stay first
-              const boot = `${strict}\n(${stealth})(${JSON.stringify(cover)});\n${source.slice(strict.length)}`
-              copy = realm.URL.createObjectURL(new realm.Blob([boot], { type: 'text/javascript' }))
+              const blob = blobs.get(url)
+              let parts
+              if (blob) {
+                // ponytail: the script stays unread, so a "use strict" at its top no longer applies. Code written
+                // strict nearly always runs the same; noting a leading one in Blob's constructor would restore it.
+                parts = [`(${stealth})(${JSON.stringify(cover)});\n`, blob]
+              } else {
+                // A URL made before Alibi arrived, or in a world it didn't patch: read the script. A site whose
+                // Permissions-Policy turns off synchronous requests (Cloudflare's dashboard) would refuse the
+                // read and report it, so its worker starts as it is.
+                if (realm.document?.featurePolicy?.allowsFeature('sync-xhr') === false) return Reflect.construct(target, args, newTarget)
+                const xhr = new realm.XMLHttpRequest()
+                xhr.open('GET', url, false)
+                xhr.send()
+                const source = xhr.responseText
+                const strict = source.match(/^\s*(['"])use strict\1;?/)?.[0] ?? '' // must stay first
+                parts = [`${strict}\n(${stealth})(${JSON.stringify(cover)});\n${source.slice(strict.length)}`]
+              }
+              copy = Reflect.apply(createURL, realm.URL, [new realm.Blob(parts, { type: 'text/javascript' })])
               copies.set(url, copy)
             }
             return Reflect.construct(target, [copy, ...args.slice(1)], newTarget)
