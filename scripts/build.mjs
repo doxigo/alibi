@@ -9,7 +9,7 @@ const root = new URL('..', import.meta.url)
 const build = new URL('build/', root)
 
 rmSync(build, { recursive: true, force: true })
-for (const entry of ['html', 'css', 'img', 'fonts', 'js', '_locales', 'manifest.json']) {
+for (const entry of ['html', 'css', 'img', 'fonts', 'js', '_locales', 'manifest.json', 'LICENSE', 'NOTICE']) {
   cpSync(new URL(entry, root), new URL(entry, build), { recursive: true })
 }
 rmSync(new URL('img/src', build), { recursive: true, force: true })

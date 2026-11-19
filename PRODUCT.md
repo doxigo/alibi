@@ -16,7 +16,7 @@ Alibi is a Chromium extension (Chrome, Brave) that makes the browser report a di
 
 ## Positioning
 
-Two modes with an honest trade-off. Stealth Mode (default) patches the page's JavaScript APIs and never attaches the debugger, so Chrome shows no "started debugging this browser" banner. When "Allow User Scripts" is on, it runs before any page script. Deep Mode requests `chrome.debugger` CDP emulation for browser-level spoofing, and Chrome shows the banner. Browser support is required: Chrome 157 refuses native timezone and locale overrides from extensions. A failed Deep tab offers a one-click switch to Stealth for that site and reloads it. Alibi forks Cloaq; the banner-free Stealth Mode is the difference.
+Two modes with an honest trade-off. Stealth Mode (default) patches the page's JavaScript APIs and never attaches the debugger, so Chrome shows no "started debugging this browser" banner. When "Allow User Scripts" is on, it runs before any page script. Deep Mode requests `chrome.debugger` CDP emulation for browser-level spoofing, and Chrome shows the banner. Browser support is required: Chrome 157 refuses native timezone and locale overrides from extensions. A failed Deep tab offers a one-click switch to Stealth for that site and reloads it.
 
 ## Operating Context
 
@@ -37,8 +37,8 @@ Two modes with an honest trade-off. Stealth Mode (default) patches the page's Ja
 
 ## Brand Commitments
 
-- Name: Alibi. It replaces Cloaq's name, icon, logo and colors completely, and nothing visual carries over from Cloaq.
-- License: GPL-3.0. Cloaq must be credited as the upstream project.
+- Name: Alibi, with its own icon, logo and colors.
+- License: GPL-3.0. See NOTICE for upstream attribution.
 - To be published publicly (Chrome Web Store and/or a public GitHub repo), so the icon has to read at 16px in a toolbar and look right among store listings.
 
 ## Evidence on Hand

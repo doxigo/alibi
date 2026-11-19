@@ -8,7 +8,7 @@ Check what sites see: [doxigo.github.io/alibi](https://doxigo.github.io/alibi/).
 
 Alibi is a Chrome extension that spoofs your time zone, geolocation, and locale to any location you choose. The locale also sets `navigator.language` and the `Accept-Language` header, so every place a site can ask tells the same story. It can also seal WebRTC, so a page can't learn your real IP address by going around your VPN or proxy. Use it to test websites in different regions or to match your location data to your VPN's IP address.
 
-Alibi is a fork of [Cloaq](https://github.com/www1z4rd/cloaq) by www1z4rd and is distributed under the same GPL-3.0 license. Changes from Cloaq: it was renamed, and it adds a Stealth Mode that never attaches the debugger, so Chrome's "started debugging this browser" banner doesn't appear.
+Alibi is free software under the GPL-3.0 license. See [NOTICE](NOTICE) for upstream attribution.
 
 ## Install
 

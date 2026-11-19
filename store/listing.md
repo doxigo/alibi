@@ -35,7 +35,7 @@ Upload `alibi-store.zip` from `yarn build:store`. That build leaves out the `use
 >
 > Alibi doesn't change your IP address; use a VPN or proxy for that. It has no analytics or tracking and keeps your settings in your browser. It only contacts a server (GeoJS, over HTTPS) for "Match my IP address": when you choose it, then once a minute so the cover follows your VPN.
 >
-> Free and open source (GPL-3.0), based on Cloaq.
+> Free and open source (GPL-3.0).
 
 **Images** (in this folder):
 
