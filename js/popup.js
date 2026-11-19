@@ -1,6 +1,6 @@
-import { lookupIp, saveSettings, SETTINGS_KEYS } from './settings.js'
+import { recoverDeep, lookupIp, saveSettings, SETTINGS_KEYS } from './settings.js'
 import locationsConfigurations from './locationsConfigurations.js'
-import { coverFor, sameZone, siteKey, userScriptsAvailable, userScriptsPermitted } from './sites.js'
+import { SEALED_POLICY, coverFor, sameZone, siteKey, staleIp, userScriptsAvailable, userScriptsPermitted } from './sites.js'
 
 const $ = (selector) => document.querySelector(selector)
 
@@ -296,16 +296,27 @@ const updateHint = () => {
 // Chrome's WebRTC setting has one holder. Another extension or a policy may have it, and then the boxes
 // could change nothing, so they're disabled and the note says who holds it. A site's own seal is in its
 // pages, so the holder doesn't matter to it, but while Chrome's seal is on a site has nothing to add.
-const webRtcControl = chrome.privacy.network.webRTCIPHandlingPolicy.get({}).then((setting) => setting.levelOfControl)
+const rtcPolicy = chrome.privacy.network.webRTCIPHandlingPolicy
+let rtcRevision = 0
 const renderWebRtc = async () => {
-  const control = await webRtcControl
-  const held = scope === 'site' ? (stored.sealWebRtc ? 'Sealed for all sites.' : null)
-    : control === 'not_controllable' ? 'Set by a policy.'
-    : control === 'controlled_by_other_extensions' ? 'Set by an extension.'
-    : null
-  openInput.disabled = sealedInput.disabled = !!held
-  webRtcNote.textContent = held ?? (sealedInput.checked ? 'Shows no public IP.' : 'Can bypass a proxy.')
+  const revision = ++rtcRevision
+  const setting = await rtcPolicy.get({ incognito: chrome.extension.inIncognitoContext }).catch(() => ({}))
+  if (revision !== rtcRevision) return
+  const sealed = setting.value === SEALED_POLICY
+  const site = scope === 'site'
+  const requested = site ? !!siteRule()?.sealWebRtc : !!stored.sealWebRtc
+  const owner = { not_controllable: 'browser policy', controlled_by_other_extensions: 'another extension' }[setting.levelOfControl]
+  const locked = !setting.value || (site ? sealed : !!owner)
+  openInput.disabled = sealedInput.disabled = locked
+  ;(sealed || (site && requested) ? sealedInput : openInput).checked = true
+  if (!setting.value) webRtcNote.textContent = 'Browser protection could not be verified.'
+  else if (site && sealed) webRtcNote.textContent = 'Sealed for all sites.'
+  else if (site && requested) webRtcNote.textContent = 'Site relay requested. Reload to apply.'
+  else if (stored.sealWebRtc && !sealed) webRtcNote.textContent = owner ? `Browser seal blocked by ${owner}.` : 'Browser seal is not active.'
+  else if (owner && !site) webRtcNote.textContent = `${sealed ? 'Sealed' : 'Open'} by ${owner}.`
+  else webRtcNote.textContent = sealed ? 'Browser WebRTC policy is active.' : 'Can bypass a proxy.'
 }
+rtcPolicy.onChange.addListener(renderWebRtc)
 
 // --- Saving ----------------------------------------------------------------------------------
 
@@ -481,8 +492,19 @@ const refreshStatus = async () => {
   const labels = { applied: 'Applied', configured: 'Configured', failed: 'Failed', 'reload-required': 'Reload required', off: 'Off' }
   modeNote.textContent = status.state === 'failed' ? 'Failed. Open Manage for details.' : `${labels[status.state] ?? 'Configured'}. ${status.mode ?? (deepInput.checked ? 'Deep' : 'Stealth')} mode.`
   modeNote.title = status.detail
+  $('#recoverDeep').hidden = !(result?.site && result.cover?.useDebuggerApi && status.state === 'failed' && status.mode === 'Deep')
+  $('#recoverDeep').dataset.site = result?.site ?? ''
+  $('#ipStale').hidden = result?.cover?.configuration !== 'ipAddress' || !staleIp(result.ipStatus)
   markPending(status.state === 'reload-required' || status.state === 'configured')
 }
+
+$('#recoverDeep').addEventListener('click', async () => {
+  const button = $('#recoverDeep')
+  button.disabled = true
+  try { await flushSave(); await recoverDeep(activeTab.id, button.dataset.site) }
+  catch (error) { modeNote.textContent = error.message }
+  finally { button.disabled = false }
+})
 
 // --- Start -------------------------------------------------------------------------------------
 

@@ -16,7 +16,7 @@ Alibi is a Chromium extension (Chrome, Brave) that makes the browser report a di
 
 ## Positioning
 
-Two modes with an honest trade-off. Stealth Mode (default) patches the page's JavaScript APIs and never attaches the debugger, so Chrome shows no "started debugging this browser" banner. When "Allow User Scripts" is on, it runs before any page script. Deep Mode requests `chrome.debugger` CDP emulation for browser-level spoofing, and Chrome shows the banner. Browser support is required: Chrome 157 refuses native timezone and locale overrides from extensions. Failed application is shown explicitly, with instructions to select Stealth and reload. Alibi forks Cloaq; the banner-free Stealth Mode is the difference.
+Two modes with an honest trade-off. Stealth Mode (default) patches the page's JavaScript APIs and never attaches the debugger, so Chrome shows no "started debugging this browser" banner. When "Allow User Scripts" is on, it runs before any page script. Deep Mode requests `chrome.debugger` CDP emulation for browser-level spoofing, and Chrome shows the banner. Browser support is required: Chrome 157 refuses native timezone and locale overrides from extensions. A failed Deep tab offers a one-click switch to Stealth for that site and reloads it. Alibi forks Cloaq; the banner-free Stealth Mode is the difference.
 
 ## Operating Context
 

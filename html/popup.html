@@ -160,12 +160,15 @@
     </form>
     </div>
 
+    <p id="ipStale" class="mx-5 text-[12.5px] text-airmail" role="status" hidden>IP location is stale. Open Manage for details.</p>
+
     <fieldset id="modeRow" class="mx-5 mt-3 border-t border-rule pt-3">
       <legend class="sr-only">Mode, for <span data-scope-name>all sites</span></legend>
       <div class="flex items-center justify-between gap-4">
         <div class="min-w-0">
           <p class="truncate text-[13.5px] font-bold" aria-hidden="true">Mode <span class="font-medium text-ink3">· <span data-scope-name>all sites</span></span></p>
           <p id="modeNote" class="text-[12.5px] text-ink2" role="status"></p>
+          <button id="recoverDeep" class="link-button" type="button" hidden>Switch this site to Stealth and reload</button>
         </div>
         <div class="halves shrink-0">
           <label>
@@ -184,11 +187,10 @@
       </p>
     </fieldset>
 
-    <!-- A secondary setting, so it's a line on the form with two tick boxes, not a second stamped switch. -->
-    <fieldset id="webRtcRow" class="webrtc-line mx-5 mt-2.5 pb-3">
+    <fieldset id="webRtcRow" class="webrtc-line mx-5 mt-2.5 min-w-0 pb-3">
       <legend class="sr-only">WebRTC, for <span data-scope-name>all sites</span></legend>
       <div class="flex items-center justify-between gap-3">
-        <p class="flex min-w-0 items-center gap-1.5 text-[12.5px]">
+        <p class="flex items-center gap-1.5 text-[13.5px]">
           <svg class="envelope shrink-0" width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor"
             stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <rect x="2.5" y="7" width="15" height="10" rx="1" />
@@ -197,8 +199,6 @@
             <circle class="envelope-seal" cx="10" cy="12" r="1.9" stroke="none" />
           </svg>
           <span class="font-bold text-ink" aria-hidden="true">WebRTC</span>
-          <span class="text-ink3" aria-hidden="true">·</span>
-          <span id="webRtcNote" class="min-w-0 truncate font-medium text-ink2"></span>
         </p>
         <div class="tick-boxes shrink-0">
           <div class="tick-option">
@@ -221,6 +221,7 @@
           </div>
         </div>
       </div>
+      <p id="webRtcNote" class="mt-0.5 text-[12.5px] text-ink2" role="status"></p>
     </fieldset>
   </main>
 

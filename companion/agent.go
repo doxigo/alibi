@@ -165,6 +165,7 @@ type agent struct {
 	found   cover // as GeoJS gave it
 	have    bool
 	lastErr error
+	lookup  lookupStatus
 	wish    *wish
 	h       *homeState // home as it stands, from agentConfig's at first
 	// finish has run: the agent has let go for good and moves nothing more, as the session ends or it quits.
@@ -196,6 +197,7 @@ func (g *agent) run(ctx context.Context) error {
 			g.found, g.have = place, true
 		}
 		g.lastErr = err
+		g.lookup.record(err)
 		// After a failed look too: a zone moved back while offline goes where it was.
 		r := g.syncLocked()
 		g.mu.Unlock()
@@ -286,7 +288,7 @@ func (g *agent) syncLocked() agentReport {
 	}
 	if !g.dryRun {
 		// After every look and change, so the host can tell the agent still runs.
-		if err := writeAgentState(g.state, agentState{Cover: place, System: system}); err != nil {
+		if err := writeAgentState(g.state, agentState{Cover: place, System: system, Lookup: g.lookup}); err != nil {
 			g.logf("%v", err)
 		}
 	}

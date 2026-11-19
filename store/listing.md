@@ -21,15 +21,17 @@ Upload `alibi-store.zip` from `yarn build:store`. That build leaves out the `use
 > One consistent story
 > • Time zone and clock, date and number formats, navigator.language, the Accept-Language header and geolocation all agree.
 > • Iframes and the workers that scripts start follow the page they belong to.
-> • Seal WebRTC, and it can't show sites your real IP address around your VPN or proxy.
+> • See whether Chrome is enforcing the WebRTC seal or another policy is keeping it open.
 >
 > A different cover for each site
 > • Give any site its own place. Its subdomains follow it.
 > • Keep a site, such as your bank, on your real location.
+> • Preview which rules and profiles a backup will add or replace. Undo the import if needed.
 >
 > Two modes
 > • Stealth (default): rewrites what each page reads. Chrome shows no banner.
 > • Deep: works below the page through Chrome's debugger, so it's harder to detect. Chrome shows a "started debugging this browser" banner while it's on.
+> • If Chrome blocks Deep, switch that site to Stealth and reload in one click.
 >
 > Alibi doesn't change your IP address; use a VPN or proxy for that. It has no analytics or tracking and keeps your settings in your browser. It only contacts a server (GeoJS, over HTTPS) for "Match my IP address": when you choose it, then once a minute so the cover follows your VPN.
 >

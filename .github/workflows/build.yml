@@ -23,6 +23,11 @@ jobs:
         with:
           node-version: 22
           cache: yarn
+      - name: Check build dependencies for advisories
+        if: runner.os == 'Linux'
+        uses: google/osv-scanner-action/osv-scanner-action@0e457b42d0120153c352875e9b758b1e5c58c7e5 # v2.7.1
+        with:
+          scan-args: --lockfile=yarn.lock
       - run: yarn install --frozen-lockfile
       - run: yarn test
       - run: yarn build:store

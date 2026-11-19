@@ -694,3 +694,27 @@ func (s *syncBuffer) String() string {
 	defer s.mu.Unlock()
 	return s.b.String()
 }
+
+func TestLookupStatusKeepsLastSuccessfulCheck(t *testing.T) {
+	var frames bytes.Buffer
+	sender := &sender{out: &frames}
+	sender.withStatus.Store(true)
+	success := lookupStatus{Checked: 10, LastSuccess: 10}
+	failed := lookupStatus{Checked: 20, LastSuccess: 10, Failed: true}
+	for _, state := range []lookupStatus{success, failed, failed, {Checked: 30, LastSuccess: 30}} {
+		if err := sender.send(tokyo, state); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, want := range []lookupStatus{success, failed, {Checked: 30, LastSuccess: 30}} {
+		msg := readFrame(t, &frames)
+		status := msg["lookupStatus"].(map[string]any)
+		if msg["timezone"] != tokyo.Timezone || int64(status["checked"].(float64)) != want.Checked ||
+			int64(status["lastSuccess"].(float64)) != want.LastSuccess || (status["failed"] == true) != want.Failed {
+			t.Fatalf("observation = %v, want %v", msg, want)
+		}
+	}
+	if frames.Len() != 0 {
+		t.Fatal("duplicate observations sent")
+	}
+}

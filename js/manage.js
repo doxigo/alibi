@@ -1,10 +1,10 @@
 import locations from './locationsConfigurations.js'
-import { languagesFor } from './sites.js'
-import { checkedImport, checkedSettingsCover, checkedSite, exportSettings, lookupIp, saveSettings, SETTINGS_KEYS } from './settings.js'
+import { languagesFor, SEALED_POLICY, staleIp } from './sites.js'
+import { importPlan, recoverDeep, checkedSettingsCover, checkedSite, exportSettings, lookupIp, saveSettings, SETTINGS_KEYS } from './settings.js'
 import diagnose from './diagnostics.js'
 
 const $ = (selector) => document.querySelector(selector)
-let stored = await chrome.storage.local.get(SETTINGS_KEYS)
+let stored = await chrome.storage.local.get([...SETTINGS_KEYS, 'importUndo'])
 let selected = null
 let configuration = 'custom'
 let expiry = null
@@ -44,16 +44,28 @@ const showCover = (cover) => {
   for (const key of ['timezone', 'locale', 'lat', 'lon']) $(`#${key}`).value = cover[key] ?? ''
   $('#mode').value = cover.useDebuggerApi ? 'deep' : 'stealth'
   $('#seal').checked = !!cover.sealWebRtc
-  expiry = cover.expiresAt ?? null
-  $('#expiry').value = 'keep'
 }
+const rtcPolicy = chrome.privacy.network.webRTCIPHandlingPolicy
+const showWebRtcPolicy = async () => {
+  const setting = await rtcPolicy.get({ incognito: chrome.extension.inIncognitoContext }).catch(() => ({}))
+  const note = $('#rtcPolicy')
+  if (!setting.value) note.textContent = 'Browser WebRTC protection could not be verified.'
+  else if (setting.value === SEALED_POLICY) note.textContent = 'Browser WebRTC seal is active for all sites.'
+  else if (stored.sealWebRtc) note.textContent = 'The requested browser WebRTC seal is not active.'
+  else note.textContent = ''
+  note.hidden = !note.textContent
+}
+rtcPolicy.onChange.addListener(showWebRtcPolicy)
 const selectRule = (site) => {
   selected = site
   dirty = false
   $('#editorTitle').textContent = site ?? 'All sites'
   $('#scopeNote').textContent = site ? 'Applies to this site and its subdomains. More specific rules win.' : 'Used wherever no site rule applies.'
+  showWebRtcPolicy()
   $('#expiry').disabled = !site
   $('#removeRule').hidden = !site
+  expiry = site ? stored.sites[site].expiresAt ?? null : null
+  $('#expiry').value = 'keep'
   showCover(site ? { useDebuggerApi: stored.useDebuggerApi, ...stored.sites[site] } : exportSettings(stored).cover)
   $('#preset').value = ''
   renderLists()
@@ -99,9 +111,7 @@ $('#preset').addEventListener('change', run(async () => {
   try {
     const cover = choice === 'ipAddress' ? await lookupIp() : locations[choice] ?? {}
     if (selected !== site) return
-    const duration = $('#expiry').value
-    showCover({ ...cover, configuration: choice, useDebuggerApi: $('#mode').value === 'deep', sealWebRtc: $('#seal').checked, expiresAt: expiry })
-    $('#expiry').value = duration
+    showCover({ ...cover, configuration: choice, useDebuggerApi: $('#mode').value === 'deep', sealWebRtc: $('#seal').checked })
     dirty = true
   } finally { $('#preset').disabled = false }
 }))
@@ -152,6 +162,14 @@ $('#export').addEventListener('click', () => {
   link.click()
   setTimeout(() => URL.revokeObjectURL(url), 1000)
 })
+let pendingImport = null
+const closePreview = () => {
+  pendingImport = null
+  $('#importPreview').hidden = true
+  $('#importChanges').replaceChildren()
+}
+$('#undoImport').hidden = !stored.importUndo
+$('#cancelImport').addEventListener('click', () => { closePreview(); $('#import').focus() })
 $('#import').addEventListener('click', () => $('#importFile').click())
 $('#importFile').addEventListener('change', run(async () => {
   const file = $('#importFile').files[0]
@@ -160,25 +178,58 @@ $('#importFile').addEventListener('change', run(async () => {
   if (dirty) throw new Error('Save your edits before importing a backup.')
   if (file.size > 1024 * 1024) throw new Error('Backups must be smaller than 1 MB.')
   const data = JSON.parse(await file.text())
-  checkedImport(data)
-  await save({ command: 'import', data })
+  const preview = importPlan(stored, data)
+  closePreview()
+  if (!preview.length) return notice('The backup matches your settings.')
+  pendingImport = { data, preview }
+  for (const entry of preview) {
+    const line = document.createElement('li')
+    const label = entry.kind === 'cover' ? 'All sites' : `${entry.kind === 'sites' ? 'Site' : 'Profile'} ${entry.name}`
+    line.textContent = `${entry.before ? 'Replace' : 'Add'} ${label}`
+    $('#importChanges').append(line)
+  }
+  $('#importPreview').hidden = false
+  $('#confirmImport').focus()
+}))
+$('#confirmImport').addEventListener('click', run(async () => {
+  if (!pendingImport || dirty) throw new Error('Save any edits and preview the import again.')
+  await save({ command: 'import', ...pendingImport })
+  closePreview()
   selectRule(null)
-  notice('Backup imported and merged. Matching names and All sites were replaced.')
+  $('#undoImport').hidden = false
+  $('#undoImport').focus()
+  notice('Backup imported.')
+}))
+$('#undoImport').addEventListener('click', run(async () => {
+  if (dirty) throw new Error('Save your edits before undoing the import.')
+  await save({ command: 'undoImport' })
+  closePreview()
+  selectRule(null)
+  $('#undoImport').hidden = true
+  $('#import').focus()
+  notice('Import undone. Any later edits were kept.')
 }))
 
 const refreshStatus = async () => {
   const tabId = Number($('#tabs').value)
   $('#checkTab').disabled = !tabId || checking
   $('#reloadTab').disabled = !tabId
-  if (!tabId) return
+  $('#recoverDeep').hidden = true
+  if (!tabId) { $('#ipStatus').textContent = ''; return }
   const answer = await chrome.runtime.sendMessage({ status: tabId })
   if (Number($('#tabs').value) !== tabId) return answer
   if (!answer?.ok) return $('#appliedStatus').textContent = answer?.error ?? 'Status unavailable.'
   $('#appliedStatus').textContent = `${answer.status.state.replaceAll('-', ' ')}: ${answer.status.detail ?? ''}`
+  $('#recoverDeep').hidden = !(answer.cover?.useDebuggerApi && answer.status.mode === 'Deep' && answer.status.state === 'failed' && answer.site)
+  $('#recoverDeep').dataset.site = answer.site ?? ''
   const ip = answer.ipStatus
-  $('#ipStatus').textContent = ip?.lastSuccess ? `Last location update: ${new Date(ip.lastSuccess).toLocaleString()} (${ip.source}).${ip.error ? ` Latest check failed: ${ip.error}` : ''}` : 'No successful IP lookup recorded yet.'
+  const last = ip?.lastSuccess ? `Last verified ${new Date(ip.lastSuccess).toLocaleString()}.` : 'No successful lookup yet.'
+  const failed = ip?.error ? ` ${ip.source} check failed. ${ip.error}` : ''
+  const stale = answer.cover?.configuration === 'ipAddress' && staleIp(ip) ? 'IP location is stale. ' : ''
+  $('#ipStatus').textContent = stale + last + failed
   return answer
 }
+$('#recoverDeep').addEventListener('click', run(() => recoverDeep(Number($('#tabs').value), $('#recoverDeep').dataset.site)))
 const initial = new URL(location.href).searchParams.get('tab')
 const refreshTabs = async () => {
   const chosen = $('#tabs').value || initial
@@ -248,6 +299,8 @@ chrome.storage.onChanged.addListener((changes, area) => {
   if (area === 'local' && SETTINGS_KEYS.some((key) => key !== 'profiles' && Object.hasOwn(changes, key))) invalidateDiagnostics()
   if (area === 'session' && Object.hasOwn(changes, `protection-${$('#tabs').value}`)) invalidateDiagnostics()
   if (area === 'local') {
+    if (changes.sealWebRtc) queueMicrotask(showWebRtcPolicy)
+    if (changes.importUndo) $('#undoImport').hidden = !changes.importUndo.newValue
     for (const [key, value] of Object.entries(changes)) {
       if (value.newValue === undefined) delete stored[key]
       else stored[key] = value.newValue

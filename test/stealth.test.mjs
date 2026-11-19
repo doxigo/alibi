@@ -10,6 +10,8 @@ for (const t of stamps) {
   const d = new Date(t)
   out.push(d.toString(), d.getTimezoneOffset(), d.getHours(), d.getDate(), d.getDay(), d.toLocaleString('en-US'))
 }
+for (const fields of [[2024,2,10,2,30],[2024,10,3,1,30],[2024,3,7,1,45],[2024,9,6,2,15],[2011,11,30,12]]) out.push(new Date(...fields).getTime())
+out.push(Date.parse('2024-03-10T02:30'), new Date('2024-11-03T01:30').getTime())
 out.push(Intl.DateTimeFormat().resolvedOptions().timeZone)
 out.push(new Date(2024, 2, 31, 2, 30).getTime(), new Date(2024, 9, 27, 12).getTime(), new Date(99, 0).getTime())
 out.push(new Date('2024-06-01T10:00').getTime(), new Date('2024-06-01').getTime(), Date.parse('Jun 1 2024 10:00'))
@@ -26,7 +28,7 @@ const run = (tz, spoof) =>
       : PROBE,
   ], { env: { ...process.env, TZ: tz, LANG: 'en_US.UTF-8' } }).toString())
 
-for (const zone of ['Europe/Berlin', 'Asia/Kolkata', 'America/Sao_Paulo', 'Australia/Lord_Howe']) {
+for (const zone of ['America/New_York', 'Pacific/Apia', 'Europe/Berlin', 'Asia/Kolkata', 'America/Sao_Paulo', 'Australia/Lord_Howe']) {
   assert.deepEqual(run('America/New_York', zone), run(zone), zone)
   console.log('ok', zone)
 }
@@ -244,6 +246,8 @@ assert.equal(pageCover(modes, 'x.com'), null, 'a Deep site with no seal gets not
 assert.deepEqual(pageCover(modes, 'shop.a.com'), { configuration: 'ipAddress', timezone: 'Europe/Oslo', locale: 'nb-NO', lat: 59.91, lon: 10.75 })
 assert.deepEqual(pageCover(modes, 'b.com'), { relay: true }, 'a Deep site gets only its seal')
 assert.ok(pageCover(modes, 'off.b.com').relay && !pageCover(modes, 'off.b.com').timezone, 'a Stealth site off its cover still gets its seal')
-assert.equal(pageCover({ ...modes, sealWebRtc: true }, 'b.com'), null, "Chrome's seal already holds")
+assert.equal(pageCover({ ...modes, sealWebRtc: true }, 'b.com', true), null, "Chrome's seal already holds")
 assert.equal(pageCover({ sites: { 'a.com': { configuration: 'browserDefault' } } }, 'a.com'), null)
 console.log('ok each site has its own mode and seal')
+
+assert.deepEqual(pageCover({ ...modes, sealWebRtc: true }, 'b.com', false), { relay: true }, 'blocked global seal keeps the site relay')

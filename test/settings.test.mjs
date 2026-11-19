@@ -36,3 +36,30 @@ await write({ command: 'cover', site: '__proto__', changes: tokyo })
 assert.ok(Object.hasOwn(state.sites, '__proto__'))
 assert.equal(Object.getPrototypeOf(state.sites), Object.prototype)
 console.log('ok settings validation, expiry, import and concurrent writes')
+
+const { importPlan } = await import('../js/settings.js')
+const oldSite = { ...tokyo, expiresAt: 9100000000000 }
+const prior = { ...tokyo, useDebuggerApi: true, sites: { 'a.test': oldSite }, profiles: { Work: tokyo } }
+const imported = { version: 1, cover: tokyo, sites: { 'a.test': tokyo, 'new.test': tokyo }, profiles: { Work: { ...tokyo, locale: 'en-GB' } } }
+const preview = importPlan(prior, imported)
+const action = { command: 'import', data: imported, preview }
+const firstImport = settingsChange({}, { ...action, preview: importPlan({}, imported) })
+assert.equal(settingsChange(firstImport, { command: 'undoImport' }).configuration, 'browserDefault')
+assert.equal(exportSettings({ timezone: 'Asia/Tokyo' }).cover.configuration, 'custom')
+assert.throws(() => settingsChange({ ...prior, sites: {} }, action), /Preview/)
+const merged = { ...prior, ...settingsChange(prior, action) }
+assert.equal(merged.useDebuggerApi, false)
+const later = { ...tokyo, locale: 'de-DE' }
+merged.profiles.Work = later
+merged.sites['other.test'] = later
+const undone = { ...merged, ...settingsChange(merged, { command: 'undoImport' }) }
+assert.equal(undone.useDebuggerApi, true)
+assert.deepEqual(undone.sites['a.test'], oldSite)
+assert.equal(undone.sites['new.test'], undefined)
+assert.deepEqual(undone.sites['other.test'], later)
+assert.deepEqual(undone.profiles.Work, later)
+assert.equal(undone.importUndo, null)
+const recovered = settingsChange(prior, { command: 'recoverSite', site: 'sub.a.test' }).sites
+assert.equal(recovered['sub.a.test'].expiresAt, oldSite.expiresAt)
+assert.equal(recovered['sub.a.test'].useDebuggerApi, false)
+assert.deepEqual(recovered['a.test'], oldSite)

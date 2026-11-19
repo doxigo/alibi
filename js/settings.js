@@ -1,4 +1,4 @@
-import { coordinates, followIp, siteKey } from './sites.js'
+import { coordinates, coverFor, followIp, isActive, siteKey } from './sites.js'
 
 export const COVER_FIELDS = ['configuration', 'timezone', 'locale', 'lat', 'lon', 'useDebuggerApi', 'sealWebRtc', 'expiresAt']
 export const SETTINGS_KEYS = [...COVER_FIELDS.filter((key) => key !== 'expiresAt'), 'sites', 'profiles']
@@ -41,7 +41,8 @@ export const checkedSettingsCover = (value, temporary = false) => {
 
 export const exportSettings = (stored) => ({
   version: 1,
-  cover: checkedSettingsCover(Object.fromEntries(COVER_FIELDS.filter((key) => key !== 'expiresAt' && stored[key] !== undefined).map((key) => [key, stored[key]]))),
+  cover: checkedSettingsCover({ configuration: isActive(stored) ? 'custom' : 'browserDefault',
+    ...Object.fromEntries(COVER_FIELDS.filter((key) => key !== 'expiresAt' && stored[key] !== undefined).map((key) => [key, stored[key]])) }),
   sites: stored.sites ?? {}, profiles: stored.profiles ?? {},
 })
 
@@ -58,13 +59,49 @@ export const checkedImport = (value) => {
   return result
 }
 
+const recordKey = (record) => JSON.stringify(record, COVER_FIELDS)
+const globalRecord = (stored) => ({ useDebuggerApi: false, sealWebRtc: false, ...exportSettings(stored).cover })
+const namedRecord = (records, name) => Object.hasOwn(records ?? {}, name) ? records[name] : null
+
+export const importPlan = (stored, data) => {
+  const imported = checkedImport(data)
+  const entries = []
+  const compare = (kind, name, before, after) => {
+    if (recordKey(before) !== recordKey(after)) entries.push({ kind, name, before, after })
+  }
+  compare('cover', '', globalRecord(stored), globalRecord(imported))
+  for (const kind of ['sites', 'profiles']) {
+    const names = Object.keys(imported[kind]).sort()
+    const count = new Set([...Object.keys(stored[kind] ?? {}), ...names]).size
+    if (count > (kind === 'sites' ? 1000 : 100)) throw new Error('The merged backup exceeds the rule or profile limit.')
+    for (const name of names) compare(kind, name, namedRecord(stored[kind], name), imported[kind][name])
+  }
+  return entries
+}
+
+const applyImport = (stored, entries, undo) => {
+  const changes = { importUndo: undo ? null : entries }
+  for (const { kind, name, before, after } of entries) {
+    const current = kind === 'cover' ? globalRecord(stored) : namedRecord(stored[kind], name)
+    if (undo && recordKey(current) !== recordKey(after)) continue
+    const value = undo ? before : after
+    if (kind === 'cover') Object.assign(changes, value)
+    else {
+      changes[kind] ??= Object.assign(Object.create(null), stored[kind])
+      if (value === null) delete changes[kind][name]
+      else changes[kind][name] = value
+    }
+  }
+  return changes
+}
+
 export const settingsChange = (stored, action, now = Date.now()) => {
   if (!object(action)) throw new Error('Invalid settings request.')
   const sites = { ...stored.sites }
   switch (action.command) {
     case 'cover': {
       const site = action.site == null ? null : checkedSite(action.site)
-      const previous = site && Object.hasOwn(sites, site) ? sites[site] : exportSettings(stored).cover
+      const previous = site && Object.hasOwn(sites, site) ? sites[site] : exportSettings({ ...stored, configuration: stored.configuration ?? 'custom' }).cover
       if (!object(action.changes)) throw new Error('Invalid cover changes.')
       const cover = checkedSettingsCover({ ...previous, ...action.changes }, !!site)
       if (!site) return cover
@@ -87,16 +124,31 @@ export const settingsChange = (stored, action, now = Date.now()) => {
       return { profiles }
     }
     case 'import': {
-      const imported = checkedImport(action.data)
-      imported.sites = { ...sites, ...imported.sites }
-      imported.profiles = { ...stored.profiles, ...imported.profiles }
-      if (Object.keys(imported.sites).length > 1000 || Object.keys(imported.profiles).length > 100) throw new Error('The merged backup exceeds the rule or profile limit.')
-      return imported
+      const entries = importPlan(stored, action.data)
+      const fields = ['kind', 'name', 'before', 'after', ...COVER_FIELDS]
+      if (JSON.stringify(entries, fields) !== JSON.stringify(action.preview, fields)) throw new Error('Settings changed. Preview the import again.')
+      return entries.length ? applyImport(stored, entries, false) : {}
+    }
+    case 'undoImport':
+      if (!stored.importUndo) throw new Error('No import to undo.')
+      return applyImport(stored, stored.importUndo, true)
+    case 'recoverSite': {
+      const site = checkedSite(action.site)
+      const effective = coverFor(site, stored)
+      if (!effective.useDebuggerApi) throw new Error('This site is already using Stealth.')
+      const fields = Object.fromEntries(COVER_FIELDS.filter((key) => effective[key] !== undefined).map((key) => [key, effective[key]]))
+      return settingsChange(stored, { command: 'cover', site, changes: { ...fields, useDebuggerApi: false, sealWebRtc: !!effective.site && !!effective.sealWebRtc } })
     }
     case 'expire':
       return { sites: Object.fromEntries(Object.entries(sites).filter(([, rule]) => !rule.expiresAt || rule.expiresAt > now)) }
-    case 'ip':
-      return followIp(stored, action.cover)
+    case 'ip': {
+      const prior = stored.ipStatus ?? {}
+      const status = action.status
+      if (status && status.checked < (prior.checked ?? prior.lastSuccess ?? 0)) return {}
+      const changes = action.cover ? followIp(stored, action.cover) : {}
+      if (status) changes.ipStatus = { ...status, lastSuccess: Math.max(prior.lastSuccess ?? 0, status.lastSuccess ?? 0) }
+      return changes
+    }
     default:
       throw new Error('Unknown settings request.')
   }
@@ -106,7 +158,7 @@ export const settingsWriter = (storage) => {
   let pending = Promise.resolve()
   return (action) => {
     const write = pending.then(async () => {
-      const stored = await storage.get(SETTINGS_KEYS)
+      const stored = await storage.get(action.command === 'undoImport' ? [...SETTINGS_KEYS, 'importUndo'] : action.command === 'ip' ? [...SETTINGS_KEYS, 'ipStatus'] : SETTINGS_KEYS)
       const changes = settingsChange(stored, action)
       if (Object.keys(changes).some((key) => JSON.stringify(changes[key]) !== JSON.stringify(stored[key]))) await storage.set(changes)
       return { ...stored, ...changes }
@@ -126,4 +178,9 @@ export const lookupIp = async () => {
   const answer = await chrome.runtime.sendMessage({ lookupIp: true })
   if (!answer?.ok) throw new Error(answer?.error ?? 'Could not look up your IP address.')
   return answer.cover
+}
+
+export const recoverDeep = async (tabId, site) => {
+  const answer = await chrome.runtime.sendMessage({ recoverDeep: tabId, site })
+  if (!answer?.ok) throw new Error(answer?.error ?? 'Could not recover this tab.')
 }

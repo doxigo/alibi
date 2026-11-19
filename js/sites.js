@@ -2,7 +2,6 @@
 // `sites: { 'example.com': { configuration, timezone, locale, lat, lon, useDebuggerApi, sealWebRtc } }`.
 // Everything else at the top level of storage is the cover for all other sites.
 
-// Self-contained: background.js serializes it into the user script.
 // The most specific rule wins, so a rule for example.com also covers shop.example.com.
 // A rule from before sites had a mode of their own keeps All sites' mode.
 export function coverFor(host, { sites = {}, ...everywhere }, now = Date.now()) {
@@ -12,12 +11,14 @@ export function coverFor(host, { sites = {}, ...everywhere }, now = Date.now()) 
   return everywhere
 }
 
+export const SEALED_POLICY = 'disable_non_proxied_udp'
+
 // What a site's pages are given to run themselves (stealth.js): the cover in Stealth mode, and `relay`
 // while the site seals WebRTC on its own and Chrome's browser-wide seal is off. Null when they need nothing.
-export const pageCover = (settings, host) => {
-  const { useDebuggerApi, sealWebRtc, configuration, timezone, locale, lat, lon } = coverFor(host, settings)
+export const pageCover = (settings, host, browserSealed) => {
+  const { site, useDebuggerApi, sealWebRtc, configuration, timezone, locale, lat, lon } = coverFor(host, settings)
   const cover = useDebuggerApi ? {} : { configuration, timezone, locale, lat, lon }
-  if (sealWebRtc && !settings.sealWebRtc) cover.relay = true
+  if (site && sealWebRtc && !browserSealed) cover.relay = true
   return isActive(cover) || cover.relay ? cover : null
 }
 
@@ -119,9 +120,12 @@ export const userScriptsPermitted = chrome.runtime.getManifest().permissions.inc
 // chrome.userScripts only works once the user turns on "Allow User Scripts" for Alibi.
 export const userScriptsAvailable = () => {
   try {
-    chrome.userScripts.getScripts() // throws synchronously while the toggle is off
+    chrome.userScripts.getScripts({ ids: ['alibi-availability'] }) // throws synchronously while the toggle is off
     return true
   } catch {
     return false
   }
 }
+
+export const IP_MAX_AGE = 150000
+export const staleIp = (status, now = Date.now()) => !status?.lastSuccess || !!status.error || now - status.lastSuccess > IP_MAX_AGE

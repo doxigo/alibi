@@ -141,15 +141,15 @@ Turn this on in the popup. Alibi attaches `chrome.debugger` and uses the CDP `Em
 
 ## Per-site covers
 
-The popup has two tabs. **All sites** holds your usual cover. The second tab is named after the current site: choose **Give it its own cover** and that site, along with its subdomains, gets separate settings. The most specific rule wins, and iframes follow the page they're embedded in. To keep one site on your real location, give it its own cover and set it to **Off (real location)**. A site's own cover has its own Stealth/Deep mode too, and can seal WebRTC on its own (see [WebRTC](#webrtc)).
+The popup has two tabs. **All sites** holds your usual cover. The second tab is named after the current site: choose **Give it its own cover** and that site, along with its subdomains, gets separate settings. The most specific rule wins, and iframes follow the page they're embedded in. Chrome 145 and later also use the top-level site's language for requests from embedded frames. Older versions use the requesting frame's site for those headers. To keep one site on your real location, give it its own cover and set it to **Off (real location)**. A site's own cover has its own Stealth/Deep mode too, and can seal WebRTC on its own (see [WebRTC](#webrtc)).
 
 ## Manage covers and check application
 
-Open **Manage** in the popup to search, add, edit or remove site rules. Named profiles save a reusable copy of a cover. Loading a profile fills the form; **Save cover** applies it. A temporary site rule can expire in one hour or 24 hours. Expiry removes that rule, so the next matching parent rule or All sites applies. Existing Stealth documents need a reload; supported Deep overrides update live.
+Open **Manage** in the popup to search, add, edit or remove site rules. Named profiles save a reusable copy of a cover. Loading a profile keeps the site rule's expiry. Choose **Save cover** to apply it. A temporary site rule can expire in one hour or 24 hours. Expiry removes that rule, so the next matching parent rule or All sites applies. Existing Stealth documents need a reload; supported Deep overrides update live.
 
-**Export settings** saves a versioned JSON backup locally. **Import and merge** validates the whole file before saving, merges site rules and profiles, and replaces matching names and All sites settings. Backups contain hostnames and coordinates. Limits are 1 MB per import, 1,000 site rules and 100 profiles.
+**Export settings** saves a versioned JSON backup locally. **Preview import** lists the additions and replacements before you apply them. **Undo last import** restores the previous values for entries you have not edited since. Backups contain hostnames and coordinates. Limits are 1 MB per import, 1,000 site rules and 100 profiles.
 
-Application status distinguishes **Configured**, **Applied**, **Failed**, **Reload required** and **Off**. Applied means the injection or browser commands completed; it is not proof against fingerprinting. A Stealth settings change keeps the old document's cover until reload. Deep-to-Stealth changes also require reload. Unrelated tabs keep their debugger sessions. The manager shows the last successful browser IP lookup or companion location update and any later browser lookup failure. An old timestamp does not confirm that the current connection is unchanged.
+Application status distinguishes **Configured**, **Applied**, **Failed**, **Reload required** and **Off**. Applied means the injection or browser commands completed; it is not proof against fingerprinting. A Stealth settings change keeps the old document's cover until reload. Deep-to-Stealth changes also require reload. Unrelated tabs keep their debugger sessions. The manager shows the last successful browser IP lookup or companion location update and any later lookup failure. A failed lookup or 150 seconds without a successful check marks an IP cover stale. After a Deep failure, **Switch this site to Stealth and reload** keeps the effective cover and changes the mode for this site.
 
 **Run diagnostics** compares the selected tab's page, fresh iframe, classic and module blob workers, Accept-Language header, permitted geolocation and WebRTC candidates. It does not request location permission. The header test contacts httpbingo.org and the STUN test contacts Google's server, so those services see the connection address. No page contents or referrer are sent by the header test. Results come from the page and can be affected by its scripts or policies. No WebRTC candidates is inconclusive. These blob-worker checks do not cover Stealth's known file-worker limitations.
 
@@ -157,13 +157,13 @@ Application status distinguishes **Configured**, **Applied**, **Failed**, **Relo
 
 Alibi does not change your IP address. Use a VPN or proxy for that, then choose **Match my IP address**. The cover then follows your connection. While any cover uses it, Alibi asks [GeoJS](https://www.geojs.io/) where you appear to be once a minute, so switching VPN exits moves the cover within a minute. Pages already open pick up the new place when they reload.
 
-With [Whereabouts](https://github.com/doxigo/whereabouts) running, the cover moves as soon as Whereabouts sees the new exit, and GeoJS isn't asked at all. To set it up:
+With [Whereabouts](https://github.com/doxigo/whereabouts) running, the cover moves as soon as Whereabouts sees the new exit, and the browser uses that report while it is fresh. To set it up:
 
 1. Install Whereabouts 1.2.0 or later and open it once. Each time it starts, it registers itself with Chrome and Brave as a native messaging host (`com.doxigo.whereabouts`) that only Alibi may use.
 2. Load this version of Alibi or a later one (see the note on the pinned ID under [Install](#install)).
 3. Choose **Match my IP address** for all sites or for one site.
 
-Nothing else is needed. If Whereabouts quits or isn't installed, Alibi goes back to asking GeoJS once a minute, and picks Whereabouts up again within a minute of it starting. The Chrome Web Store build leaves this out: it has a different ID and no `nativeMessaging` permission.
+If the companion reports a failed check, quits, or goes 150 seconds without confirming its location, Alibi checks GeoJS at its next minute alarm. Older companions that report only changes also get this browser recheck. The Chrome Web Store build leaves this out: it has a different ID and no `nativeMessaging` permission.
 
 On Windows and Linux, [Alibi Companion](#alibi-companion-windows-and-linux) takes Whereabouts' place: install it once, and the cover moves as soon as the companion sees the new exit.
 
@@ -177,7 +177,7 @@ The **WebRTC** line under Mode in the popup closes that. Point at either box for
 
 A site with its own cover can be **Sealed** while All sites stays Open. Chrome's setting covers the whole browser, so that seal is in the site's pages instead: Alibi has their WebRTC use relays only, reached over TCP or TLS. Pages already open pick it up when they reload. It's weaker than Chrome's seal, since a page that sets out to can reach a fresh frame (`frames[0]`) before Alibi patches it. While All sites is Sealed, every site is, and a site's own boxes are greyed out.
 
-Sealed has a cost. Calls connect through a TCP relay instead of directly, which can add some delay, and a site that offers no TCP relay can't connect a call at all. If another extension or a policy holds the setting, the popup says which and greys out the boxes, since they could change nothing (between extensions, Chrome lets the most recently installed one win).
+Sealed has a cost. Calls connect through a TCP relay instead of directly, which can add some delay, and a site that offers no TCP relay can't connect a call at all. The popup shows Chrome's effective setting. If another extension or policy prevents the browser seal, the popup shows it as blocked. A site with its own seal can still use its relay protection after a reload.
 
 The [check page](https://doxigo.github.io/alibi/) shows the public address WebRTC gives a page next to the one its requests come from. Sealed, it shows none, and so does a public test such as [BrowserLeaks](https://browserleaks.com/webrtc).
 

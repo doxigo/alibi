@@ -118,29 +118,31 @@ export default function stealth(config) {
       const OrigDate = Date
       const DP = Date.prototype
       const getTime = DP.getTime
-      const parts = new Intl.DateTimeFormat('en-US', {
-        timeZone: timezone, hourCycle: 'h23', era: 'short',
-        year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric',
-      })
+      const offsets = new Intl.DateTimeFormat('en-US', { timeZone: timezone, hour: 'numeric', timeZoneName: 'longOffset' })
       const longName = new Intl.DateTimeFormat(undefined, { timeZone: timezone, timeZoneName: 'long' })
-
-      // Minutes to add to target-zone wall time to get UTC (Date#getTimezoneOffset convention).
-      let lastT, lastOffset // pages read several fields of one date in a row
+      let start = Infinity, end = -Infinity, offset
       const offsetAt = (t) => {
-        if (Number.isNaN(t)) return NaN
-        if (t === lastT) return lastOffset
-        const p = {}
-        for (const { type, value } of parts.formatToParts(t)) p[type] = value
-        const wall = new OrigDate(0)
-        wall.setUTCFullYear(p.era === 'BC' ? 1 - p.year : +p.year, p.month - 1, p.day)
-        wall.setUTCHours(p.hour, p.minute, p.second, 0)
-        const wholeSecond = t - ((t % 1000) + 1000) % 1000
-        lastT = t
-        return (lastOffset = Math.round((wholeSecond - getTime.call(wall)) / 60000))
+        if (!Number.isFinite(t) || Math.abs(t) > 8.64e15) return NaN
+        if (t >= start && t < end) return offset
+        if (realm.Temporal?.ZonedDateTime?.prototype.getTimeZoneTransition) {
+          const zoned = realm.Temporal.Instant.fromEpochMilliseconds(t).toZonedDateTimeISO(timezone)
+          offset = zoned.offsetNanoseconds === 0 ? 0 : -zoned.offsetNanoseconds / 1e6
+          end = zoned.getTimeZoneTransition('next')?.epochMilliseconds ?? Infinity
+        } else {
+          const match = offsets.format(t).match(/GMT([+-])(\d+):(\d+)(?::(\d+))?$/)
+          offset = match ? (match[1] === '+' ? -1 : 1) * ((+match[2] * 60 + +match[3]) * 60 + +(match[4] || 0)) * 1000 : 0
+          end = t + 1
+        }
+        start = t
+        return offset
       }
-      // UTC ms <-> "local" ms (target-zone wall clock stored as if it were UTC).
-      const toLocal = (t) => t - offsetAt(t) * 60000
-      const fromLocal = (l) => l + offsetAt(l + offsetAt(l) * 60000) * 60000 // second pass settles DST edges
+      const toLocal = (t) => t - offsetAt(t)
+      // Date chooses the earlier instant in an overlap and advances by the gap for a missing time.
+      const fromLocal = (l) => {
+        const first = l + offsetAt(Math.max(-8.64e15, l - 2 * 86400000))
+        const other = l + offsetAt(first)
+        return first === other || toLocal(other) !== l ? first : other
+      }
       const shifted = (d) => new OrigDate(toLocal(getTime.call(d)))
       const realOffset = DP.getTimezoneOffset
       const realParse = OrigDate.parse
@@ -151,7 +153,7 @@ export default function stealth(config) {
         hook(DP, `get${name}`, (_, d) => utcGetter.call(shifted(d)))
       }
       hook(DP, 'getYear', (_, d) => DP.getUTCFullYear.call(shifted(d)) - 1900)
-      hook(DP, 'getTimezoneOffset', (_, d) => offsetAt(getTime.call(d)))
+      hook(DP, 'getTimezoneOffset', (_, d) => Math.trunc(offsetAt(getTime.call(d)) / 60000) + 0)
 
       // Local-time setters: edit the shifted copy with the UTC setter, then map back.
       for (const name of ['FullYear', 'Month', 'Date', 'Hours', 'Minutes', 'Seconds', 'Milliseconds']) {
@@ -175,7 +177,7 @@ export default function stealth(config) {
       }
       const timeString = (d) => {
         const s = shifted(d)
-        const off = -offsetAt(getTime.call(d))
+        const off = -Math.trunc(offsetAt(getTime.call(d)) / 60000)
         const name = longName.formatToParts(d).find((p) => p.type === 'timeZoneName')?.value
         const gmt = `GMT${off < 0 ? '-' : '+'}${pad(Math.floor(Math.abs(off) / 60))}${pad(Math.abs(off) % 60)}`
         return `${pad(s.getUTCHours())}:${pad(s.getUTCMinutes())}:${pad(s.getUTCSeconds())} ${gmt} (${name})`
@@ -190,8 +192,9 @@ export default function stealth(config) {
       const zoned = /(?:z|[+-]\d\d(?::?\d\d)?|\b(?:ut|utc|gmt|[ecmp][sd]t))\s*(?:\(.*\))?\s*$/i
       const dateOnlyISO = /^[+-]?\d{4,6}(?:-\d\d(?:-\d\d)?)?$/
       const parse = (str) => {
-        const t = realParse(str)
         str = String(str).trim()
+        if (/^[+-]?(?:\d{4}|\d{6})-\d\d-\d\dT\d\d:\d\d(?::\d\d(?:\.\d+)?)?$/i.test(str)) return fromLocal(realParse(str + 'Z'))
+        const t = realParse(str)
         if (Number.isNaN(t) || zoned.test(str) || dateOnlyISO.test(str)) return t
         return fromLocal(t - Reflect.apply(realOffset, new OrigDate(t), []) * 60000)
       }

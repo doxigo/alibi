@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process'
-import { cp, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { once } from 'node:events'
@@ -57,6 +57,14 @@ export async function browserSession() {
     const { sessionId } = await send('Target.attachToTarget', { targetId, flatten: true })
     return { targetId, sessionId }
   }
+  const privacyController = async () => {
+    const path = join(dir, 'policy-controller')
+    await mkdir(path)
+    await writeFile(join(path, 'manifest.json'), JSON.stringify({ manifest_version: 3, name: 'WebRTC policy test', version: '1', permissions: ['privacy'] }))
+    await writeFile(join(path, 'control.html'), '<!doctype html><title>WebRTC policy test</title>')
+    const { id } = await send('Extensions.loadUnpacked', { path })
+    return page(`chrome-extension://${id}/control.html`, true)
+  }
   const close = async () => {
     if (browser.exitCode === null && browser.signalCode === null && !browser.killed) {
       const ended = once(browser, 'exit')
@@ -68,6 +76,6 @@ export async function browserSession() {
   try {
     const version = await send('Browser.getVersion')
     const { id: extensionId } = await send('Extensions.loadUnpacked', { path: extension })
-    return { send, evaluate, page, close, extensionId, version: version.product }
+    return { send, evaluate, page, privacyController, close, extensionId, version: version.product }
   } catch (error) { await close(); throw error }
 }

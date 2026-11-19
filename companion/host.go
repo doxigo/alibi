@@ -76,6 +76,11 @@ func host(origin string, stdin io.Reader, stdout, stderr io.Writer) int {
 	go func() {
 		readMessages(stdin, func(message []byte) {
 			if on, ok := followingIn(message); ok {
+				var options struct {
+					LookupStatus bool `json:"lookupStatus"`
+				}
+				_ = json.Unmarshal(message, &options)
+				s.withStatus.Store(options.LookupStatus)
 				word.set(on)
 			}
 			if !takesCovers.Load() {
@@ -137,10 +142,11 @@ func defaultWatch(lookup func(context.Context) (cover, error), logf func(string,
 
 // sender writes messages to the browser, and nothing it has already sent.
 type sender struct {
-	out    io.Writer
-	mu     sync.Mutex // one frame at a time: a hello can go out while places do
-	sent   []byte     // the last place
-	system *string
+	withStatus atomic.Bool
+	out        io.Writer
+	mu         sync.Mutex // one frame at a time: a hello can go out while places do
+	sent       []byte     // the last place
+	system     *string
 }
 
 func (s *sender) frame(message []byte) error {
@@ -170,8 +176,31 @@ func (s *sender) hello(takesCovers bool) error {
 	return s.write(map[string]any{"hello": "alibi-companion", "version": version, "accepts": accepts})
 }
 
-func (s *sender) send(place cover) error {
-	message, err := json.Marshal(place)
+type lookupStatus struct {
+	Checked     int64 `json:"checked"`
+	LastSuccess int64 `json:"lastSuccess"`
+	Failed      bool  `json:"failed,omitempty"`
+}
+
+func (v *lookupStatus) record(err error) {
+	v.Checked = time.Now().UnixMilli()
+	v.Failed = err != nil
+	if err == nil {
+		v.LastSuccess = v.Checked
+	}
+}
+
+func (s *sender) send(place cover, status lookupStatus) error {
+	var payload any = place
+	if s.withStatus.Load() && status.Checked != 0 {
+		payload = struct {
+			cover
+			LookupStatus lookupStatus `json:"lookupStatus"`
+		}{place, status}
+	} else if place.Timezone == "" || status.Failed {
+		return nil
+	}
+	message, err := json.Marshal(payload)
 	if err != nil {
 		return err
 	}
@@ -282,6 +311,7 @@ func followingIn(message []byte) (bool, bool) {
 // follow looks the place up itself, but only while Alibi says a cover follows the IP: otherwise there's
 // nothing to ask GeoJS for.
 func follow(ctx context.Context, cfg watchConfig, agent func() (agentState, bool), s *sender, word *followWord) error {
+	var status lookupStatus
 	for ctx.Err() == nil {
 		if _, ok := agent(); ok {
 			if err := relay(ctx, cfg.relay, agent, s); err != nil {
@@ -315,13 +345,14 @@ func follow(ctx context.Context, cfg watchConfig, agent func() (agentState, bool
 		var err error
 		if following {
 			err = watch(own, cfg, func(place cover, err error) error {
-				if err != nil {
-					if own.Err() == nil {
-						cfg.logf("couldn't look up the connection: %v", err)
-					}
-					return nil // offline, or GeoJS down: Alibi keeps the last place
+				if own.Err() != nil {
+					return nil
 				}
-				return s.send(place)
+				status.record(err)
+				if err != nil {
+					cfg.logf("couldn't look up the connection: %v", err)
+				}
+				return s.send(place, status)
 			})
 		} else {
 			<-own.Done()
@@ -343,10 +374,8 @@ func relay(ctx context.Context, every time.Duration, agent func() (agentState, b
 		if !ok {
 			return nil
 		}
-		if state.Cover.Timezone != "" {
-			if err := s.send(state.Cover); err != nil {
-				return err
-			}
+		if err := s.send(state.Cover, state.Lookup); err != nil {
+			return err
 		}
 		if err := s.sendSystem(state.System); err != nil {
 			return err
@@ -541,7 +570,8 @@ func readWish(dir string) *wish { return pickWish(liveCovers(dir)) }
 
 // The agent's latest word, which the host relays: agent.json in the companion's folder.
 type agentState struct {
-	Cover cover `json:"cover"` // the connection's place, its zone as browsers read it when the system's on it
+	Lookup lookupStatus `json:"lookup"`
+	Cover  cover        `json:"cover"` // the connection's place, its zone as browsers read it when the system's on it
 	// The zone the agent holds the system's clock on, as browsers read it; "" when it holds none.
 	System  string    `json:"system,omitempty"`
 	Updated time.Time `json:"updated"`

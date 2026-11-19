@@ -25,6 +25,7 @@
 @media (prefers-color-scheme: dark) {
   .manager select.address-line { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23b6becd' stroke-width='1.5'%3E%3Cpath d='m4 6 4 4 4-4'/%3E%3C/svg%3E"); }
 }
+#importChanges { max-height: 16rem; overflow: auto; margin: 8px 0 16px; overflow-wrap: anywhere; }
 .results-wrap { overflow-x: auto; }
 #results { width: 100%; text-align: left; font-size: 13px; border-collapse: collapse; }
 #results caption { text-align: left; padding: 12px 0; }

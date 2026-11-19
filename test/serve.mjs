@@ -12,6 +12,7 @@ const types = { html: 'text/html; charset=utf-8', js: 'text/javascript', mjs: 't
 
 export const createTestServer = () => http.createServer(async (req, res) => {
     const url = new URL(req.url, 'http://x')
+    if (url.pathname === '/headers') return res.writeHead(200, { 'content-type': 'text/plain', 'cache-control': 'no-store' }).end(req.headers['accept-language'] ?? '')
     // Anything else is a file straight from test/ (frame.html, the workers and their helpers).
     const file = shared[url.pathname] ?? (/^\/[\w-]+\.\w+$/.test(url.pathname) ? `test${url.pathname}` : null)
     let body = file && (await readFile(new URL(file, root)).catch(() => null))
