@@ -13,7 +13,11 @@ const waitFor = async (read, label) => {
   const deadline = Date.now() + 10000
   let value
   while (Date.now() < deadline) {
-    value = await read()
+    try { value = await read() }
+    catch (error) {
+      if (!/Frame with ID \d+ was removed\./.test(error.message)) throw error
+      value = false
+    }
     if (value) return value
     await new Promise((resolve) => setTimeout(resolve, 50))
   }
@@ -91,6 +95,7 @@ try {
   assert.equal(await read(tab.id, 'Intl.DateTimeFormat().resolvedOptions().timeZone'), 'Asia/Tokyo')
   await evaluate(`chrome.tabs.reload(${tab.id})`)
   await waitFor(async () => await read(tab.id, 'Intl.DateTimeFormat().resolvedOptions().timeZone') === 'Europe/Oslo', 'updated Stealth cover')
+  await loaded(tab.id)
   assert.deepEqual(await read(tab.id, "[new Date(2024,2,31,2,30).toISOString(),new Date('2024-10-27T02:30').toISOString()]"),
     ['2024-03-31T01:30:00.000Z', '2024-10-27T00:30:00.000Z'], 'missing and repeated local times in Oslo')
   const frameHeader = await evaluate(`chrome.scripting.executeScript({target:{tabId:${tab.id},allFrames:true},func:async()=>({host:location.hostname,lang:await fetch('/headers').then(r=>r.text())})}).then(results=>results.map(r=>r.result))`)
