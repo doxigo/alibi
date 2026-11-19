@@ -208,6 +208,26 @@ try {
   await settings({ command: 'cover', site: 'localhost', changes: { sealWebRtc: false } })
   console.log('ok real Chrome WebRTC policy conflict, site relay and recovery')
 
+  await evaluate(`(() => {
+    const send = chrome.runtime.sendMessage.bind(chrome.runtime)
+    chrome.runtime.sendMessage = (message, ...args) => message.lookupIp
+      ? Promise.resolve({ ok: true, cover: { timezone: 'Europe/Oslo', locale: 'nb-NO', lat: 59.9, lon: 10.7 } })
+      : send(message, ...args)
+    document.querySelector('[data-site=""]').click()
+    const preset = document.querySelector('#preset')
+    preset.value = 'ipAddress'
+    preset.dispatchEvent(new Event('input', { bubbles: true }))
+    preset.dispatchEvent(new Event('change'))
+  })()`)
+  await waitFor(() => evaluate("document.querySelector('#timezone').value === 'Europe/Oslo' && !document.querySelector('#preset').disabled"), 'IP location preview')
+  await evaluate("document.querySelector('#notice').hidden = true; document.querySelector('#editor').requestSubmit()")
+  await waitFor(() => evaluate("!document.querySelector('#notice').hidden && document.querySelector('#notice').textContent.startsWith('Cover saved')"), 'IP-following cover saved')
+  assert.equal(await evaluate("chrome.storage.local.get('configuration').then(s => s.configuration)"), 'ipAddress')
+  assert.equal(await evaluate("document.querySelector('#preset').value"), 'ipAddress')
+  const { sessionId: reopenedManager } = await browser.page(`chrome-extension://${browser.extensionId}/html/manage.html`, true)
+  await waitFor(() => browser.evaluate(reopenedManager, "document.querySelector('#preset')?.value === 'ipAddress'"), 'saved IP source after reopening Manage')
+  console.log('ok manager keeps the IP location source after saving and reopening')
+
   if (process.env.CAPTURE_DIR) {
     await mkdir(process.env.CAPTURE_DIR, { recursive: true })
     const capture = async (session, name, width, height, scheme) => {

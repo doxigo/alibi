@@ -38,9 +38,15 @@ const fields = () => {
   if (selected) cover.expiresAt = $('#expiry').value === 'keep' ? expiry : Number($('#expiry').value) ? Date.now() + Number($('#expiry').value) * 60000 : null
   return { ...checkedSettingsCover(cover, !!selected), ...(selected ? { expiresAt: cover.expiresAt } : {}) }
 }
+const showPreset = () => {
+  const preset = $('#preset')
+  preset.value = configuration
+  if (preset.selectedIndex < 0) preset.value = ''
+}
 const showCover = (cover) => {
   revision++
   configuration = cover.configuration ?? 'custom'
+  showPreset()
   for (const key of ['timezone', 'locale', 'lat', 'lon']) $(`#${key}`).value = cover[key] ?? ''
   $('#mode').value = cover.useDebuggerApi ? 'deep' : 'stealth'
   $('#seal').checked = !!cover.sealWebRtc
@@ -67,7 +73,6 @@ const selectRule = (site) => {
   expiry = site ? stored.sites[site].expiresAt ?? null : null
   $('#expiry').value = 'keep'
   showCover(site ? { useDebuggerApi: stored.useDebuggerApi, ...stored.sites[site] } : exportSettings(stored).cover)
-  $('#preset').value = ''
   renderLists()
 }
 const renderLists = () => {
@@ -101,11 +106,18 @@ $('#profiles').addEventListener('change', renderLists)
 $('#editor').addEventListener('input', (event) => {
   revision++
   dirty = true
-  if (['timezone', 'locale', 'lat', 'lon'].includes(event.target.id)) configuration = 'custom'
+  if (['timezone', 'locale', 'lat', 'lon'].includes(event.target.id)) {
+    configuration = 'custom'
+    showPreset()
+  }
 })
 $('#preset').addEventListener('change', run(async () => {
   const choice = $('#preset').value
-  if (!choice) return
+  if (!choice) {
+    configuration = 'custom'
+    dirty = true
+    return
+  }
   const site = selected
   $('#preset').disabled = true
   try {
@@ -113,9 +125,13 @@ $('#preset').addEventListener('change', run(async () => {
     if (selected !== site) return
     showCover({ ...cover, configuration: choice, useDebuggerApi: $('#mode').value === 'deep', sealWebRtc: $('#seal').checked })
     dirty = true
-  } finally { $('#preset').disabled = false }
+  } finally {
+    showPreset()
+    $('#preset').disabled = false
+  }
 }))
 $('#editor').addEventListener('submit', run(async () => {
+  if ($('#preset').disabled) throw new Error('Wait for the IP lookup to finish before saving.')
   const cover = fields()
   const site = selected, savedRevision = revision
   await save({ command: 'cover', site, changes: cover })
